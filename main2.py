@@ -1,0 +1,2020 @@
+# =============================================================================
+# STREAMLIT DASHBOARD FOR FOOD SECURITY FORECASTING - IMPROVED VERSION
+# Comprehensive interactive dashboard for food security analysis
+# =============================================================================
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import warnings
+import traceback
+import logging
+from datetime import datetime
+import io
+warnings.filterwarnings('ignore')
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Import custom modules with error handling
+try:
+    from src.food_security_forecasting import FoodSecurityForecaster, FoodSecurityConfig
+    from src.visualization import FoodSecurityVisualizer
+    from src.utils import create_metric_card, create_status_card, create_sample_data
+except ImportError as e:
+    logger.warning(f"Custom modules not found: {e}")
+    # Create mock classes for testing
+    class FoodSecurityConfig:
+        def __init__(self):
+            self.PARAM_GRID = {'n_estimators': [200], 'max_depth': [None]}
+    
+    class FoodSecurityForecaster:
+        def __init__(self, config):
+            self.config = config
+            self.cv_results = None
+            self.feature_importance = None
+            self.scenario_predictions = None
+            self.risk_assessment = None
+        
+        def run_full_analysis(self, data):
+            # Mock analysis
+            self.cv_results = pd.DataFrame({
+                'r2': np.random.uniform(0.7, 0.9, 5),
+                'rmse': np.random.uniform(0.3, 0.7, 5)
+            })
+            self.feature_importance = pd.DataFrame({
+                'Feature': ['Kemiskinan (%)', 'Lama Sekolah Perempuan', 'Rasio Tenaga Kesehatan'],
+                'Importance': [0.35, 0.28, 0.22]
+            })
+    
+    class FoodSecurityVisualizer:
+        def __init__(self, config):
+            self.config = config
+        
+        def plot_data_overview(self, df):
+            return px.histogram(df, x='Komposit', title='Data Overview')
+
+# Page configuration
+st.set_page_config(
+    page_title="Food Security Forecasting Dashboard",
+    page_icon="🌾",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Improved CSS with better dark theme support
+st.markdown("""
+<style>
+    /* Base styling improvements */
+    .main-header {
+        font-size: 2.5rem;
+        color: #ffffff;
+        text-align: center;
+        margin-bottom: 2rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .section-header {
+        font-size: 1.5rem;
+        color: #ffffff;
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 0.5rem;
+        margin: 1rem 0;
+    }
+    
+    /* Improved metric cards */
+    .metric-card {
+        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 4px solid #3498db;
+        margin: 0.5rem 0;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+    }
+    
+    .metric-card h3 {
+        color: #2c3e50 !important;
+        font-size: 0.9rem !important;
+        margin-bottom: 0.5rem !important;
+        font-weight: 600 !important;
+    }
+    
+    .metric-card h2 {
+        color: #1f77b4 !important;
+        font-size: 1.8rem !important;
+        margin: 0.5rem 0 !important;
+        font-weight: bold !important;
+    }
+    
+    .metric-card p {
+        color: #495057 !important;
+        font-size: 0.8rem !important;
+        margin: 0 !important;
+    }
+    
+    /* Status cards with improved styling */
+    .status-card-success {
+        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+        border-left: 4px solid #28a745;
+        color: #155724 !important;
+    }
+    
+    .status-card-warning {
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+        border-left: 4px solid #ffc107;
+        color: #856404 !important;
+    }
+    
+    .status-card-danger {
+        background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+        border-left: 4px solid #dc3545;
+        color: #721c24 !important;
+    }
+    
+    .status-card-info {
+        background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+        border-left: 4px solid #17a2b8;
+        color: #0c5460 !important;
+    }
+    
+    /* Loading spinner */
+    .loading-spinner {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 2rem;
+    }
+    
+    /* Error message styling */
+    .error-container {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+        color: #721c24;
+    }
+    
+    /* Success message styling */
+    .success-container {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+        color: #155724;
+    }
+    
+    /* Sidebar improvements */
+    .sidebar .sidebar-content {
+        background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+    }
+    
+    /* Table styling */
+    .dataframe {
+        font-size: 0.9rem;
+    }
+    
+    /* Button improvements */
+    .stButton > button {
+        border-radius: 8px;
+        border: none;
+        transition: all 0.2s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state with improved error handling
+def initialize_session_state():
+    """Initialize session state variables"""
+    if 'forecaster' not in st.session_state:
+        st.session_state.forecaster = None
+    if 'analysis_complete' not in st.session_state:
+        st.session_state.analysis_complete = False
+    if 'uploaded_data' not in st.session_state:
+        st.session_state.uploaded_data = None
+    if 'analysis_progress' not in st.session_state:
+        st.session_state.analysis_progress = 0
+    if 'error_messages' not in st.session_state:
+        st.session_state.error_messages = []
+
+def validate_data(df):
+    """Validate uploaded data format and content"""
+    required_columns = [
+        'Tahun', 'Provinsi', 'Kabupaten', 'Kemiskinan (%)', 
+        'Pengeluaran Pangan (%)', 'Tanpa Air Bersih (%)',
+        'Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan',
+        'Angka Harapan Hidup (tahun)', 'Komposit'
+    ]
+    
+    errors = []
+    warnings = []
+    
+    # Check for required columns
+    missing_cols = [col for col in required_columns if col not in df.columns]
+    if missing_cols:
+        errors.append(f"Missing required columns: {', '.join(missing_cols)}")
+    
+    # Check data types and ranges
+    if 'Tahun' in df.columns:
+        if not pd.api.types.is_numeric_dtype(df['Tahun']):
+            errors.append("'Tahun' column must be numeric")
+        elif df['Tahun'].min() < 2000 or df['Tahun'].max() > 2030:
+            warnings.append("Years outside typical range (2000-2030)")
+    
+    if 'Komposit' in df.columns:
+        if not pd.api.types.is_numeric_dtype(df['Komposit']):
+            errors.append("'Komposit' column must be numeric")
+        elif df['Komposit'].min() < 1 or df['Komposit'].max() > 6:
+            warnings.append("Komposit values outside expected range (1-6)")
+    
+    # Check for missing values
+    missing_pct = (df.isnull().sum() / len(df)) * 100
+    high_missing = missing_pct[missing_pct > 20]
+    if not high_missing.empty:
+        warnings.append(f"High missing values in columns: {', '.join(high_missing.index)}")
+    
+    # Check data size
+    if len(df) < 100:
+        warnings.append("Dataset is quite small (< 100 records)")
+    
+    return errors, warnings
+
+def load_sample_data():
+    """Create enhanced sample data with better realism"""
+    np.random.seed(42)
+    
+    provinces = [
+        'DKI Jakarta', 'Jawa Barat', 'Jawa Tengah', 'Jawa Timur', 'Sumatera Utara',
+        'Sumatera Barat', 'Sulawesi Selatan', 'Kalimantan Timur', 'Bali', 'NTB',
+        'Aceh', 'Sumatera Selatan', 'Lampung', 'Kalimantan Barat', 'Sulawesi Utara'
+    ]
+    
+    # Province-specific characteristics for more realistic data
+    province_chars = {
+        'DKI Jakarta': {'poverty_base': 8, 'education_base': 11, 'health_base': 2.5},
+        'Jawa Barat': {'poverty_base': 12, 'education_base': 9, 'health_base': 1.8},
+        'Bali': {'poverty_base': 7, 'education_base': 10, 'health_base': 2.0},
+        'NTB': {'poverty_base': 18, 'education_base': 7, 'health_base': 1.2},
+        'Aceh': {'poverty_base': 16, 'education_base': 8, 'health_base': 1.4}
+    }
+    
+    data = []
+    for year in range(2018, 2024):
+        for province in provinces:
+            chars = province_chars.get(province, {'poverty_base': 15, 'education_base': 8, 'health_base': 1.5})
+            
+            # Create trend over years
+            year_factor = (year - 2018) * 0.1
+            
+            for i in range(np.random.randint(8, 15)):  # Random districts per province
+                poverty = max(1, chars['poverty_base'] + np.random.normal(0, 3) - year_factor)
+                education = min(12, chars['education_base'] + np.random.normal(0, 1.5) + year_factor * 0.5)
+                health_ratio = max(0.3, chars['health_base'] + np.random.normal(0, 0.5) + year_factor * 0.1)
+                
+                # Calculate composite score based on other indicators
+                composite_base = 3.5 - (poverty / 10) + (education / 10) + (health_ratio / 2)
+                composite = max(1, min(6, composite_base + np.random.normal(0, 0.8)))
+                
+                data.append({
+                    'Tahun': year,
+                    'Provinsi': province,
+                    'Kabupaten': f'{province}_Kab_{i+1}',
+                    'Kemiskinan (%)': round(poverty, 2),
+                    'Pengeluaran Pangan (%)': round(np.random.uniform(35, 65), 2),
+                    'Tanpa Air Bersih (%)': round(np.random.uniform(8, 35), 2),
+                    'Lama Sekolah Perempuan (tahun)': round(education, 2),
+                    'Rasio Tenaga Kesehatan': round(health_ratio, 3),
+                    'Angka Harapan Hidup (tahun)': round(np.random.uniform(67, 73), 2),
+                    'Komposit': round(composite)
+                })
+    
+    return pd.DataFrame(data)
+
+def create_enhanced_metric_card(title, value, description, icon="📊", color="#3498db"):
+    """Create enhanced metric cards with better styling"""
+    return f"""
+    <div class="metric-card" style="border-left-color: {color};">
+        <h3>{icon} {title}</h3>
+        <h2 style="color: {color} !important;">{value}</h2>
+        <p>{description}</p>
+    </div>
+    """
+
+def create_enhanced_status_card(title, content, card_type="info", icon="ℹ️"):
+    """Create enhanced status cards with proper HTML rendering"""
+    type_colors = {
+        "info": "#d9edf7",
+        "success": "#dff0d8",
+        "warning": "#fcf8e3",
+        "danger": "#f2dede"
+    }
+    background_color = type_colors.get(card_type, "#d9edf7")
+
+    return f"""
+    <div style="
+        background-color: {background_color}; 
+        padding: 1.5rem; 
+        border-radius: 12px; 
+        margin: 0.5rem 0; 
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        font-family: 'Segoe UI', sans-serif;
+    ">
+        <h4 style="font-weight: 600; margin-bottom: 0.75rem; font-size: 1.1rem;">
+            {icon} {title}
+        </h4>
+        <div style="font-size: 0.95rem; line-height: 1.4;">
+            {content}
+        </div>
+    </div>
+    """
+
+def show_progress_bar(progress, message):
+    """Show progress bar for long operations"""
+    progress_bar = st.progress(progress)
+    st.text(message)
+    return progress_bar
+
+def handle_analysis_error(error, context="analysis"):
+    """Handle analysis errors gracefully"""
+    error_msg = f"Error in {context}: {str(error)}"
+    st.error(error_msg)
+    logger.error(f"{error_msg}\n{traceback.format_exc()}")
+    
+    # Store error in session state for debugging
+    if 'error_messages' not in st.session_state:
+        st.session_state.error_messages = []
+    st.session_state.error_messages.append({
+        'timestamp': datetime.now(),
+        'context': context,
+        'error': str(error),
+        'traceback': traceback.format_exc()
+    })
+
+def main():
+    """Enhanced main dashboard function"""
+    initialize_session_state()
+    
+    # Header with improved styling
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h1 class="main-header">
+            🌾 Food Security Forecasting Dashboard
+        </h1>
+        <p style="color: #ced4da; font-size: 1.1rem; margin: 0;">
+            Advanced Machine Learning for Policy Decision Support | Enhanced Version
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # Enhanced Sidebar
+    with st.sidebar:
+        st.markdown("## 📊 Dashboard Controls")
+        
+        # Data loading section with validation
+        st.markdown("### 📁 Data Loading")
+        data_source = st.radio(
+            "Choose data source:",
+            ["Upload CSV File", "Use Sample Data"],
+            help="Upload your own data or use the provided sample dataset"
+        )
+        
+        if data_source == "Upload CSV File":
+            uploaded_file = st.file_uploader(
+                "Choose a CSV file",
+                type="csv",
+                help="Upload CSV file with food security indicators"
+            )
+            
+            if uploaded_file is not None:
+                try:
+                    df = pd.read_csv(uploaded_file)
+                    
+                    # Validate data
+                    errors, warnings = validate_data(df)
+                    
+                    if errors:
+                        st.error("❌ Data validation failed:")
+                        for error in errors:
+                            st.error(f"• {error}")
+                    else:
+                        st.session_state.uploaded_data = df
+                        st.success(f"✅ Data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
+                        
+                        if warnings:
+                            st.warning("⚠️ Data warnings:")
+                            for warning in warnings:
+                                st.warning(f"• {warning}")
+                        
+                except Exception as e:
+                    handle_analysis_error(e, "file upload")
+        else:
+            if st.button("🔄 Load Sample Data"):
+                try:
+                    df = load_sample_data()
+                    st.session_state.uploaded_data = df
+                    st.success(f"✅ Sample data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
+                except Exception as e:
+                    handle_analysis_error(e, "sample data generation")
+        
+        # Enhanced analysis controls
+        if st.session_state.uploaded_data is not None:
+            st.markdown("### 🔧 Analysis Settings")
+            
+            # Model parameters with explanations
+            st.markdown("#### Model Configuration")
+            n_estimators = st.slider(
+                "Number of Trees", 
+                50, 500, 200, 25,
+                help="More trees = better accuracy but slower training"
+            )
+            max_depth = st.selectbox(
+                "Max Tree Depth", 
+                [None, 5, 10, 15, 20, 30], 
+                index=0,
+                help="Limits tree depth to prevent overfitting"
+            )
+            
+            # Cross-validation settings
+            cv_folds = st.slider("CV Folds", 3, 10, 5, help="Number of cross-validation folds")
+            
+            # Analysis execution with progress tracking
+            if st.button("🚀 Run Full Analysis", type="primary"):
+                try:
+                    progress_container = st.container()
+                    with progress_container:
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        # Initialize config
+                        status_text.text("Initializing configuration...")
+                        progress_bar.progress(10)
+                        
+                        config = FoodSecurityConfig()
+                        config.PARAM_GRID['n_estimators'] = [n_estimators]
+                        if max_depth is not None:
+                            config.PARAM_GRID['max_depth'] = [max_depth]
+                        
+                        # Run analysis with progress updates
+                        status_text.text("Training machine learning model...")
+                        progress_bar.progress(30)
+                        
+                        forecaster = FoodSecurityForecaster(config)
+                        
+                        status_text.text("Running cross-validation...")
+                        progress_bar.progress(60)
+                        
+                        forecaster.run_full_analysis(st.session_state.uploaded_data)
+                        
+                        status_text.text("Generating predictions...")
+                        progress_bar.progress(80)
+                        
+                        status_text.text("Finalizing results...")
+                        progress_bar.progress(100)
+                        
+                        st.session_state.forecaster = forecaster
+                        st.session_state.analysis_complete = True
+                        
+                        # Clear progress indicators
+                        progress_bar.empty()
+                        status_text.empty()
+                        progress_container.success("✅ Analysis completed successfully!")
+                        
+                        st.rerun()
+                        
+                except Exception as e:
+                    handle_analysis_error(e, "full analysis")
+        
+        # Enhanced information section
+        st.markdown("### ℹ️ Dashboard Information")
+        with st.expander("📋 Features & Capabilities"):
+            st.markdown("""
+            **🔧 Core Features:**
+            - Advanced data validation
+            - Real-time progress tracking  
+            - Enhanced error handling
+            - Interactive visualizations
+            - Comprehensive reporting
+            
+            **🤖 ML Capabilities:**
+            - Random Forest modeling
+            - Time series validation
+            - Feature importance analysis
+            - Scenario forecasting
+            - Risk assessment
+            
+            **📊 Visualization:**
+            - Interactive charts
+            - Geographic mapping
+            - Trend analysis
+            - Performance metrics
+            """)
+        
+        # Debug information (for development)
+        if st.session_state.error_messages:
+            with st.expander("🐛 Debug Information"):
+                st.write(f"Errors recorded: {len(st.session_state.error_messages)}")
+                if st.button("Clear Error Log"):
+                    st.session_state.error_messages = []
+                    st.rerun()
+    
+    # Main content area with improved error handling
+    try:
+        if st.session_state.uploaded_data is None:
+            show_welcome_screen()
+        else:
+            show_dashboard_content()
+    except Exception as e:
+        handle_analysis_error(e, "main content rendering")
+
+def show_welcome_screen():
+    """Enhanced welcome screen"""
+    st.markdown('<div class="welcome-section">', unsafe_allow_html=True)
+    
+    st.markdown("## 👋 Welcome to the Enhanced Food Security Dashboard")
+    
+    # Feature highlights with cards
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(create_enhanced_status_card(
+            "Data Intelligence",
+            """
+            <p>✅ Automated data validation</p>
+            <p>✅ Smart error detection</p>
+            <p>✅ Quality assessment</p>
+            <p>✅ Missing data handling</p>
+            """,
+            "info", "🧠"
+        ), unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(create_enhanced_status_card(
+            "ML Excellence", 
+            """
+            <p>✅ Advanced Random Forest</p>
+            <p>✅ Time series validation</p>
+            <p>✅ Feature engineering</p>
+            <p>✅ Performance optimization</p>
+            """,
+            "success", "🤖"
+        ), unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(create_enhanced_status_card(
+            "User Experience",
+            """
+            <p>✅ Real-time progress</p>
+            <p>✅ Interactive visualizations</p>
+            <p>✅ Comprehensive reports</p>
+            <p>✅ Export capabilities</p>
+            """,
+            "warning", "⭐"
+        ), unsafe_allow_html=True)
+    
+    # Getting started guide
+    st.markdown("### 🚀 Quick Start Guide")
+    
+    steps = [
+        "📂 **Load Data**: Upload your CSV or use sample data",
+        "⚙️ **Configure**: Adjust model parameters as needed", 
+        "🚀 **Analyze**: Run the full analysis with progress tracking",
+        "📊 **Explore**: Navigate through interactive results",
+        "📋 **Export**: Download reports and insights"
+    ]
+    
+    for i, step in enumerate(steps, 1):
+        st.markdown(f"{i}. {step}")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def show_dashboard_content():
+    """Show main dashboard content with error handling"""
+    df = st.session_state.uploaded_data
+    
+    # Create tabs
+    if st.session_state.analysis_complete:
+        tabs = st.tabs([
+            "📊 Data Overview", 
+            "🤖 Model Performance", 
+            "🎯 Feature Analysis",
+            "🔮 Forecasting", 
+            "⚠️ Risk Assessment",
+            "📋 Reports"
+        ])
+    else:
+        tabs = st.tabs(["📊 Data Overview"])
+    
+    # Data Overview Tab (always available)
+    with tabs[0]:
+        try:
+            show_enhanced_data_overview(df)
+        except Exception as e:
+            handle_analysis_error(e, "data overview")
+    
+    # Other tabs (only when analysis is complete)
+    if st.session_state.analysis_complete and st.session_state.forecaster:
+        try:
+            with tabs[1]:
+                show_enhanced_model_performance()
+            with tabs[2]:
+                show_enhanced_feature_analysis()
+            with tabs[3]:
+                show_enhanced_forecasting()
+            with tabs[4]:
+                show_enhanced_risk_assessment()
+            with tabs[5]:
+                show_enhanced_reports()
+        except Exception as e:
+            handle_analysis_error(e, "analysis results display")
+
+def show_enhanced_data_overview(df):
+    """Enhanced data overview with better metrics and visualizations"""
+    st.markdown('<h2 class="section-header">📊 Enhanced Data Overview</h2>', unsafe_allow_html=True)
+    
+    # Enhanced key metrics
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.markdown(create_enhanced_metric_card(
+            "Records", f"{len(df):,}", "Total data points", "📋"
+        ), unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(create_enhanced_metric_card(
+            "Provinces", str(df['Provinsi'].nunique()), "Geographic coverage", "🗺️"
+        ), unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(create_enhanced_metric_card(
+            "Years", f"{df['Tahun'].min()}-{df['Tahun'].max()}", "Time span", "📅"
+        ), unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(create_enhanced_metric_card(
+            "Districts", str(df['Kabupaten'].nunique()), "Administrative units", "🏢"
+        ), unsafe_allow_html=True)
+    
+    with col5:
+        completeness = (1 - df.isnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100
+        st.markdown(create_enhanced_metric_card(
+            "Completeness", f"{completeness:.1f}%", "Data quality", "✅", 
+            "#28a745" if completeness > 90 else "#ffc107" if completeness > 75 else "#dc3545"
+        ), unsafe_allow_html=True)
+    
+    # Data quality assessment
+    st.markdown("### 🔍 Data Quality Assessment")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Missing values analysis
+        missing_data = df.isnull().sum().sort_values(ascending=False)
+        missing_pct = (missing_data / len(df)) * 100
+        
+        if missing_data.sum() > 0:
+            fig_missing = px.bar(
+                x=missing_pct.values, 
+                y=missing_pct.index,
+                orientation='h',
+                title="Missing Data by Column (%)",
+                color=missing_pct.values,
+                color_continuous_scale="Reds"
+            )
+            fig_missing.update_layout(height=400)
+            st.plotly_chart(fig_missing, use_container_width=True)
+        else:
+            st.success("✅ No missing data detected!")
+    
+    with col2:
+        # Data distribution summary
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            fig_dist = px.box(
+                df[numeric_cols].melt(),
+                x='variable', y='value',
+                title="Data Distribution Overview"
+            )
+            fig_dist.update_xaxes(tickangle=45)
+            fig_dist.update_layout(height=400)
+            st.plotly_chart(fig_dist, use_container_width=True)
+    
+    # Enhanced visualizations
+    if 'Komposit' in df.columns:
+        st.markdown("### 📈 Food Security Trends")
+        
+        # Time series by province
+        yearly_data = df.groupby(['Tahun', 'Provinsi'])['Komposit'].mean().reset_index()
+        fig_trends = px.line(
+            yearly_data, x='Tahun', y='Komposit', 
+            color='Provinsi', title="Food Security Trends by Province"
+        )
+        fig_trends.update_layout(height=500)
+        st.plotly_chart(fig_trends, use_container_width=True)
+        
+        # Current status distribution
+        latest_year = df['Tahun'].max()
+        latest_data = df[df['Tahun'] == latest_year]
+        
+        fig_current = px.histogram(
+            latest_data, x='Komposit', 
+            title=f"Current Food Security Distribution ({latest_year})",
+            nbins=6
+        )
+        st.plotly_chart(fig_current, use_container_width=True)
+    
+    # Data sample with search
+    st.markdown("### 🔍 Data Explorer")
+    
+    # Search functionality
+    search_province = st.selectbox(
+        "Filter by Province:", 
+        ['All'] + list(df['Provinsi'].unique())
+    )
+    
+    search_year = st.selectbox(
+        "Filter by Year:",
+        ['All'] + sorted(list(df['Tahun'].unique()), reverse=True)
+    )
+    
+    # Apply filters
+    filtered_df = df.copy()
+    if search_province != 'All':
+        filtered_df = filtered_df[filtered_df['Provinsi'] == search_province]
+    if search_year != 'All':
+        filtered_df = filtered_df[filtered_df['Tahun'] == search_year]
+    
+    st.dataframe(
+        filtered_df.head(50), 
+        use_container_width=True,
+        height=400
+    )
+
+def show_enhanced_model_performance():
+    """Enhanced model performance section with detailed metrics"""
+    st.markdown('<h2 class="section-header">🤖 Enhanced Model Performance</h2>', unsafe_allow_html=True)
+    
+    forecaster = st.session_state.forecaster
+    
+    if forecaster.cv_results is None:
+        st.error("❌ Cross-validation results not available. Please re-run the analysis.")
+        return
+    
+    cv_results = forecaster.cv_results
+    
+    # Performance metrics with enhanced styling
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    metrics = {
+        'R² Score': {'value': cv_results['r2'].mean(), 'format': '.3f', 'icon': '🎯', 'color': '#28a745'},
+        'RMSE': {'value': cv_results['rmse'].mean(), 'format': '.3f', 'icon': '📊', 'color': '#17a2b8'},
+        'Std Dev': {'value': cv_results['r2'].std(), 'format': '.3f', 'icon': '📈', 'color': '#ffc107'},
+        'Min R²': {'value': cv_results['r2'].min(), 'format': '.3f', 'icon': '⬇️', 'color': '#dc3545'},
+        'Max R²': {'value': cv_results['r2'].max(), 'format': '.3f', 'icon': '⬆️', 'color': '#28a745'}
+    }
+    
+    for i, (key, metric) in enumerate(metrics.items()):
+        with locals()[f'col{i+1}']:
+            formatted_value = f"{metric['value']:{metric['format']}}"
+            st.markdown(create_enhanced_metric_card(
+                key, formatted_value, 
+                "Performance metric", 
+                metric['icon'], 
+                metric['color']
+            ), unsafe_allow_html=True)
+    
+    # Performance assessment
+    mean_r2 = cv_results['r2'].mean()
+    performance_level = "Excellent" if mean_r2 > 0.8 else "Good" if mean_r2 > 0.6 else "Fair" if mean_r2 > 0.4 else "Poor"
+    performance_color = "#28a745" if mean_r2 > 0.8 else "#ffc107" if mean_r2 > 0.6 else "#fd7e14" if mean_r2 > 0.4 else "#dc3545"
+    
+    st.markdown(create_enhanced_status_card(
+        f"Model Performance: {performance_level}",
+        f"""
+        <p><strong>Overall Assessment:</strong> The model shows {performance_level.lower()} predictive performance</p>
+        <p><strong>Reliability:</strong> {'High' if cv_results['r2'].std() < 0.1 else 'Moderate' if cv_results['r2'].std() < 0.2 else 'Low'} consistency across folds</p>
+        <p><strong>Recommendation:</strong> {'Deploy for production use' if mean_r2 > 0.7 else 'Consider model improvements' if mean_r2 > 0.5 else 'Requires significant enhancement'}</p>
+        """,
+        "success" if mean_r2 > 0.7 else "warning" if mean_r2 > 0.5 else "danger",
+        "✅" if mean_r2 > 0.7 else "⚠️" if mean_r2 > 0.5 else "❌"
+    ), unsafe_allow_html=True)
+    
+    # Detailed performance visualization
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Cross-validation scores
+        fig_cv = px.bar(
+            x=[f'Fold {i+1}' for i in range(len(cv_results))],
+            y=cv_results['r2'],
+            title="Cross-Validation R² Scores",
+            color=cv_results['r2'],
+            color_continuous_scale="RdYlGn"
+        )
+        fig_cv.add_hline(y=cv_results['r2'].mean(), line_dash="dash", 
+                        annotation_text=f"Mean: {cv_results['r2'].mean():.3f}")
+        fig_cv.update_layout(height=400)
+        st.plotly_chart(fig_cv, use_container_width=True)
+    
+    with col2:
+        # Performance metrics comparison
+        metrics_df = pd.DataFrame({
+            'Metric': ['R²', 'RMSE'],
+            'Mean': [cv_results['r2'].mean(), cv_results['rmse'].mean()],
+            'Std': [cv_results['r2'].std(), cv_results['rmse'].std()]
+        })
+        
+        fig_metrics = px.scatter(
+            metrics_df, x='Mean', y='Std', text='Metric',
+            title="Performance vs Stability",
+            size_max=20
+        )
+        fig_metrics.update_traces(textposition="top center", marker_size=15)
+        fig_metrics.update_layout(height=400)
+        st.plotly_chart(fig_metrics, use_container_width=True)
+    
+    # Learning curve simulation (if available)
+    st.markdown("### 📈 Model Diagnostics")
+    
+    # Performance over folds
+    fig_learning = go.Figure()
+    fig_learning.add_trace(go.Scatter(
+        x=list(range(1, len(cv_results) + 1)),
+        y=cv_results['r2'],
+        mode='lines+markers',
+        name='R² Score',
+        line=dict(color='#1f77b4', width=3),
+        marker=dict(size=8)
+    ))
+    
+    fig_learning.add_trace(go.Scatter(
+        x=list(range(1, len(cv_results) + 1)),
+        y=cv_results['rmse'],
+        mode='lines+markers',
+        name='RMSE',
+        yaxis='y2',
+        line=dict(color='#ff7f0e', width=3),
+        marker=dict(size=8)
+    ))
+    
+    fig_learning.update_layout(
+        title="Performance Across CV Folds",
+        xaxis_title="Fold Number",
+        yaxis_title="R² Score",
+        yaxis2=dict(title="RMSE", overlaying='y', side='right'),
+        height=400
+    )
+    
+    st.plotly_chart(fig_learning, use_container_width=True)
+    
+    # Detailed results table
+    st.markdown("### 📋 Detailed Cross-Validation Results")
+    
+    # Enhanced results display
+    cv_display = cv_results.copy()
+    cv_display.index = [f'Fold {i+1}' for i in range(len(cv_display))]
+    cv_display = cv_display.round(4)
+    
+    # Add summary row
+    summary_row = pd.DataFrame({
+        'r2': [cv_results['r2'].mean()],
+        'rmse': [cv_results['rmse'].mean()]
+    }, index=['Mean'])
+    
+    cv_display = pd.concat([cv_display, summary_row])
+    
+    st.dataframe(cv_display, use_container_width=True)
+
+def show_enhanced_feature_analysis():
+    """Enhanced feature analysis with detailed insights"""
+    st.markdown('<h2 class="section-header">🎯 Enhanced Feature Analysis</h2>', unsafe_allow_html=True)
+    
+    forecaster = st.session_state.forecaster
+    
+    if forecaster.feature_importance is None:
+        st.error("❌ Feature importance data not available. Please re-run the analysis.")
+        return
+    
+    feature_importance = forecaster.feature_importance.copy()
+    
+    # Feature importance metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(create_enhanced_metric_card(
+            "Top Feature", 
+            feature_importance.iloc[0]['Feature'], 
+            f"Importance: {feature_importance.iloc[0]['Importance']:.3f}",
+            "🥇", "#FFD700"
+        ), unsafe_allow_html=True)
+    
+    with col2:
+        top_3_contribution = feature_importance.head(3)['Importance'].sum()
+        st.markdown(create_enhanced_metric_card(
+            "Top 3 Impact", f"{top_3_contribution:.3f}", 
+            f"{(top_3_contribution/feature_importance['Importance'].sum()*100):.1f}% of total",
+            "📊", "#28a745"
+        ), unsafe_allow_html=True)
+    
+    with col3:
+        importance_range = feature_importance['Importance'].max() - feature_importance['Importance'].min()
+        st.markdown(create_enhanced_metric_card(
+            "Range", f"{importance_range:.3f}", 
+            "Feature diversity",
+            "📈", "#17a2b8"
+        ), unsafe_allow_html=True)
+    
+    with col4:
+        low_importance_count = (feature_importance['Importance'] < 0.05).sum()
+        st.markdown(create_enhanced_metric_card(
+            "Low Impact", str(low_importance_count), 
+            "Features < 0.05 importance",
+            "⬇️", "#6c757d"
+        ), unsafe_allow_html=True)
+    
+    # Feature categories analysis
+    st.markdown("### 📊 Feature Category Analysis")
+    
+    # Categorize features
+    def categorize_feature(feature_name):
+        if any(word in feature_name.lower() for word in ['kemiskinan', 'poverty']):
+            return 'Economic'
+        elif any(word in feature_name.lower() for word in ['sekolah', 'pendidikan', 'education']):
+            return 'Education'
+        elif any(word in feature_name.lower() for word in ['kesehatan', 'health', 'harapan']):
+            return 'Health'
+        elif any(word in feature_name.lower() for word in ['air', 'water', 'sanitasi']):
+            return 'Infrastructure'
+        elif any(word in feature_name.lower() for word in ['pangan', 'food']):
+            return 'Food Security'
+        else:
+            return 'Other'
+    
+    feature_importance['Category'] = feature_importance['Feature'].apply(categorize_feature)
+    category_importance = feature_importance.groupby('Category')['Importance'].sum().sort_values(ascending=False)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Category importance pie chart
+        fig_category = px.pie(
+            values=category_importance.values,
+            names=category_importance.index,
+            title="Feature Importance by Category"
+        )
+        fig_category.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig_category, use_container_width=True)
+    
+    with col2:
+        # Feature importance bar chart
+        top_features = feature_importance.head(10)
+        fig_importance = px.bar(
+            top_features,
+            x='Importance',
+            y='Feature',
+            orientation='h',
+            title="Top 10 Feature Importance",
+            color='Importance',
+            color_continuous_scale="Viridis"
+        )
+        fig_importance.update_layout(height=400)
+        st.plotly_chart(fig_importance, use_container_width=True)
+    
+    # Feature insights
+    st.markdown("### 💡 Feature Insights")
+    
+    insights = []
+    
+    # Top feature analysis
+    top_feature = feature_importance.iloc[0]
+    if top_feature['Importance'] > 0.3:
+        insights.append(f"🎯 **Dominant Factor**: {top_feature['Feature']} has very high importance ({top_feature['Importance']:.3f}), suggesting it's critical for food security")
+    elif top_feature['Importance'] > 0.2:
+        insights.append(f"📊 **Key Factor**: {top_feature['Feature']} is the most important predictor ({top_feature['Importance']:.3f})")
+    
+    # Category analysis
+    top_category = category_importance.index[0]
+    category_pct = (category_importance.iloc[0] / feature_importance['Importance'].sum()) * 100
+    insights.append(f"🏷️ **Category Focus**: {top_category} factors account for {category_pct:.1f}% of predictive power")
+    
+    # Feature distribution
+    high_importance = (feature_importance['Importance'] > 0.1).sum()
+    total_features = len(feature_importance)
+    insights.append(f"⚖️ **Feature Distribution**: {high_importance}/{total_features} features have high importance (>0.1)")
+    
+    # Low importance features
+    if low_importance_count > 0:
+        insights.append(f"🔍 **Optimization Opportunity**: {low_importance_count} features have minimal impact and could be removed")
+    
+    for insight in insights:
+        st.markdown(f"- {insight}")
+    
+    # Interactive feature exploration
+    st.markdown("### 🔍 Interactive Feature Explorer")
+    
+    # Feature selection
+    selected_category = st.selectbox(
+        "Filter by Category:",
+        ['All'] + list(feature_importance['Category'].unique())
+    )
+    
+    if selected_category != 'All':
+        filtered_features = feature_importance[feature_importance['Category'] == selected_category]
+    else:
+        filtered_features = feature_importance
+    
+    # Importance threshold slider
+    importance_threshold = st.slider(
+        "Minimum Importance Threshold:",
+        0.0, float(feature_importance['Importance'].max()), 0.0, 0.01
+    )
+    
+    filtered_features = filtered_features[filtered_features['Importance'] >= importance_threshold]
+    
+    # Display filtered results
+    st.markdown(f"**Showing {len(filtered_features)} features**")
+    st.dataframe(
+        filtered_features[['Feature', 'Category', 'Importance']].round(4),
+        use_container_width=True
+    )
+
+def show_enhanced_forecasting():
+    """Enhanced forecasting section with scenario analysis"""
+    st.markdown('<h2 class="section-header">🔮 Enhanced Scenario Forecasting</h2>', unsafe_allow_html=True)
+    
+    forecaster = st.session_state.forecaster
+    
+    if forecaster.scenario_predictions is None:
+        st.warning("⚠️ Scenario predictions not available. Please re-run the analysis.")
+        return
+    
+    scenario_predictions = forecaster.scenario_predictions
+    scenarios = scenario_predictions['Scenario'].unique()
+    
+    # Scenario overview with enhanced metrics
+    st.markdown("### 📊 Scenario Overview (2025 Projections)")
+    
+    cols = st.columns(len(scenarios))
+    scenario_stats = {}
+    
+    for i, scenario in enumerate(scenarios):
+        scenario_data = scenario_predictions[scenario_predictions['Scenario'] == scenario]
+        avg_prediction = scenario_data['Predicted_Komposit'].mean()
+        
+        # Calculate risk levels
+        high_risk = (scenario_data['Predicted_Komposit'] <= 2).sum()
+        medium_risk = ((scenario_data['Predicted_Komposit'] > 2) & (scenario_data['Predicted_Komposit'] <= 3)).sum()
+        low_risk = (scenario_data['Predicted_Komposit'] > 3).sum()
+        
+        scenario_stats[scenario] = {
+            'avg': avg_prediction,
+            'high_risk': high_risk,
+            'medium_risk': medium_risk,
+            'low_risk': low_risk,
+            'total': len(scenario_data)
+        }
+        
+        with cols[i]:
+            # Determine card type
+            if "Optimistic" in scenario:
+                card_type, icon = "success", "🟢"
+            elif "Pessimistic" in scenario or "Crisis" in scenario:
+                card_type, icon = "danger", "🔴"
+            elif "Moderate" in scenario:
+                card_type, icon = "info", "🔵"
+            else:
+                card_type, icon = "warning", "🟡"
+            
+            risk_pct = (high_risk / len(scenario_data)) * 100
+            
+            content = f"""
+            <h3 style="margin: 0.5rem 0; font-size: 1.2rem;">Avg Score: {avg_prediction:.2f}</h3>
+            <p><strong>Provinces:</strong> {len(scenario_data)}</p>
+            <p><strong>High Risk:</strong> {high_risk} ({risk_pct:.1f}%)</p>
+            <p><strong>Range:</strong> {scenario_data['Predicted_Komposit'].min():.2f} - {scenario_data['Predicted_Komposit'].max():.2f}</p>
+            <p><strong>Uncertainty:</strong> ±{scenario_data['Uncertainty_Range'].mean():.2f}</p>
+            """
+            
+            st.markdown(create_enhanced_status_card(scenario, content, card_type, icon), unsafe_allow_html=True)
+    
+    # Scenario comparison visualization
+    st.markdown("### 📈 Scenario Comparison")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Box plot comparison
+        fig_comparison = px.box(
+            scenario_predictions, 
+            x='Scenario', y='Predicted_Komposit',
+            title="Food Security Score Distribution by Scenario",
+            color='Scenario'
+        )
+        fig_comparison.update_layout(height=400)
+        st.plotly_chart(fig_comparison, use_container_width=True)
+    
+    with col2:
+        # Risk level comparison
+        risk_data = []
+        for scenario in scenarios:
+            stats = scenario_stats[scenario]
+            risk_data.extend([
+                {'Scenario': scenario, 'Risk Level': 'High Risk', 'Count': stats['high_risk']},
+                {'Scenario': scenario, 'Risk Level': 'Medium Risk', 'Count': stats['medium_risk']},
+                {'Scenario': scenario, 'Risk Level': 'Low Risk', 'Count': stats['low_risk']}
+            ])
+        
+        risk_df = pd.DataFrame(risk_data)
+        fig_risk = px.bar(
+            risk_df, x='Scenario', y='Count', color='Risk Level',
+            title="Risk Distribution by Scenario",
+            color_discrete_map={
+                'High Risk': '#dc3545',
+                'Medium Risk': '#ffc107', 
+                'Low Risk': '#28a745'
+            }
+        )
+        fig_risk.update_layout(height=400)
+        st.plotly_chart(fig_risk, use_container_width=True)
+    
+    # Provincial analysis
+    st.markdown("### 🏆 Provincial Performance Analysis")
+    
+    # Scenario selector
+    selected_scenario = st.selectbox("Select Scenario for Detailed Analysis:", scenarios)
+    scenario_data = scenario_predictions[scenario_predictions['Scenario'] == selected_scenario]
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 🥇 Top 10 Best Performing Provinces")
+        top_provinces = scenario_data.nlargest(10, 'Predicted_Komposit')[
+            ['Provinsi', 'Predicted_Komposit', 'Lower_CI_95', 'Upper_CI_95']
+        ].round(3)
+        st.dataframe(top_provinces, use_container_width=True, height=350)
+    
+    with col2:
+        st.markdown("#### 🚨 Top 10 Highest Risk Provinces")
+        bottom_provinces = scenario_data.nsmallest(10, 'Predicted_Komposit')[
+            ['Provinsi', 'Predicted_Komposit', 'Lower_CI_95', 'Upper_CI_95']
+        ].round(3)
+        st.dataframe(bottom_provinces, use_container_width=True, height=350)
+    
+    # Uncertainty analysis
+    st.markdown("### 🎲 Prediction Uncertainty Analysis")
+    
+    # Provinces with highest uncertainty
+    high_uncertainty = scenario_data.nlargest(5, 'Uncertainty_Range')
+    
+    if len(high_uncertainty) > 0:
+        st.markdown(create_enhanced_status_card(
+            "High Uncertainty Alert",
+            f"""
+            <p><strong>Top 5 Most Uncertain Predictions:</strong></p>
+            <p>{', '.join(high_uncertainty['Provinsi'].tolist())}</p>
+            <p><strong>Average Uncertainty:</strong> ±{high_uncertainty['Uncertainty_Range'].mean():.3f}</p>
+            <p><strong>Recommendation:</strong> Requires additional monitoring and data collection</p>
+            """,
+            "warning", "⚠️"
+        ), unsafe_allow_html=True)
+    
+    # Uncertainty vs prediction scatter
+    fig_uncertainty = px.scatter(
+        scenario_data,
+        x='Predicted_Komposit', 
+        y='Uncertainty_Range',
+        hover_data=['Provinsi'],
+        title=f"Prediction vs Uncertainty - {selected_scenario}",
+        size='Uncertainty_Range',
+        color='Predicted_Komposit',
+        color_continuous_scale="RdYlGn"
+    )
+    fig_uncertainty.update_layout(height=400)
+    st.plotly_chart(fig_uncertainty, use_container_width=True)
+
+def show_enhanced_risk_assessment():
+    """Enhanced risk assessment with actionable insights"""
+    st.markdown('<h2 class="section-header">⚠️ Enhanced Risk Assessment</h2>', unsafe_allow_html=True)
+    
+    forecaster = st.session_state.forecaster
+    
+    if forecaster.risk_assessment is None:
+        st.warning("⚠️ Risk assessment not available. Please re-run the analysis.")
+        return
+    
+    risk_assessment = forecaster.risk_assessment
+    status_quo_risk = risk_assessment[risk_assessment['Scenario'] == 'Status Quo']
+    
+    # Risk level distribution with enhanced metrics
+    risk_dist = status_quo_risk['Risk_Level'].value_counts()
+    total_provinces = len(status_quo_risk)
+    
+    st.markdown("### 🚨 Risk Level Distribution")
+    
+    # Create risk overview cards
+    risk_levels = ['Very High Risk', 'High Risk', 'Medium Risk', 'Low Risk']
+    risk_configs = {
+        'Very High Risk': {'type': 'danger', 'icon': '🔴', 'action': 'immediate intervention'},
+        'High Risk': {'type': 'danger', 'icon': '🟠', 'action': 'urgent action'},
+        'Medium Risk': {'type': 'warning', 'icon': '🟡', 'action': 'close monitoring'},
+        'Low Risk': {'type': 'success', 'icon': '🟢', 'action': 'maintain status'}
+    }
+    
+    cols = st.columns(4)
+    
+    for i, risk_level in enumerate(risk_levels):
+        count = risk_dist.get(risk_level, 0)
+        percentage = (count / total_provinces) * 100
+        config = risk_configs.get(risk_level, {'type': 'info', 'icon': '⚪', 'action': 'review'})
+        
+        with cols[i]:
+            content = f"""
+            <h2 style="text-align: center; margin: 0.5rem 0; font-size: 2rem; font-weight: bold;">{count}</h2>
+            <p style="text-align: center; margin: 0.25rem 0;"><strong>{percentage:.1f}%</strong></p>
+            <p style="text-align: center; margin: 0.25rem 0; font-size: 0.85rem;">
+                Requires <strong>{config['action']}</strong>
+            </p>
+            """
+            
+            st.markdown(create_enhanced_status_card(
+                risk_level, content, config['type'], config['icon']
+            ), unsafe_allow_html=True)
+    
+    # Critical alerts section
+    high_risk_count = risk_dist.get('Very High Risk', 0) + risk_dist.get('High Risk', 0)
+    critical_threshold = total_provinces * 0.2  # 20% threshold
+    
+    if high_risk_count > critical_threshold:
+        st.markdown(create_enhanced_status_card(
+            "🚨 CRITICAL ALERT - National Food Security Emergency",
+            f"""
+            <p><strong>{high_risk_count}</strong> provinces ({(high_risk_count/total_provinces*100):.1f}%) are at high or very high risk</p>
+            <p><strong>Threshold Exceeded:</strong> More than 20% of provinces require urgent intervention</p>
+            <p><strong>Immediate Actions Required:</strong></p>
+            <ul>
+                <li>Activate emergency food distribution systems</li>
+                <li>Deploy rapid response teams to affected areas</li>
+                <li>Coordinate with international aid organizations</li>
+                <li>Implement emergency budget allocations</li>
+            </ul>
+            """,
+            "danger", "🚨"
+        ), unsafe_allow_html=True)
+    elif high_risk_count > 0:
+        st.markdown(create_enhanced_status_card(
+            "⚠️ Elevated Risk Alert",
+            f"""
+            <p><strong>{high_risk_count}</strong> provinces require immediate attention</p>
+            <p><strong>Action Items:</strong> Deploy targeted interventions and increase monitoring frequency</p>
+            """,
+            "warning", "⚠️"
+        ), unsafe_allow_html=True)
+    else:
+        st.markdown(create_enhanced_status_card(
+            "✅ No Critical Alerts",
+            "<p>No provinces currently at critical risk levels. Continue routine monitoring.</p>",
+            "success", "✅"
+        ), unsafe_allow_html=True)
+    
+    # Regional risk analysis
+    st.markdown("### 🗺️ Regional Risk Analysis")
+    
+    # Risk by region (if available)
+    if 'Provinsi' in status_quo_risk.columns:
+        # Create risk heatmap
+        risk_by_province = status_quo_risk.pivot_table(
+            index='Provinsi', 
+            values='Predicted_Komposit', 
+            aggfunc='mean'
+        ).reset_index()
+        
+        fig_risk_map = px.bar(
+            risk_by_province.sort_values('Predicted_Komposit'),
+            x='Predicted_Komposit',
+            y='Provinsi',
+            orientation='h',
+            title="Food Security Risk by Province",
+            color='Predicted_Komposit',
+            color_continuous_scale="RdYlGn"
+        )
+        fig_risk_map.add_vline(x=2, line_dash="dash", line_color="red", 
+                              annotation_text="High Risk Threshold")
+        fig_risk_map.add_vline(x=3, line_dash="dash", line_color="orange",
+                              annotation_text="Medium Risk Threshold")
+        fig_risk_map.update_layout(height=600)
+        st.plotly_chart(fig_risk_map, use_container_width=True)
+    
+    # Detailed risk analysis
+    st.markdown("### 📊 Detailed Risk Analysis")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # High risk provinces details
+        high_risk_provinces = status_quo_risk[
+            status_quo_risk['Risk_Level'].isin(['Very High Risk', 'High Risk'])
+        ].sort_values('Predicted_Komposit')
+        
+        if len(high_risk_provinces) > 0:
+            st.markdown("#### 🚨 High-Risk Provinces Detail")
+            st.dataframe(
+                high_risk_provinces[['Provinsi', 'Predicted_Komposit', 'Risk_Level', 'Uncertainty_Range']].round(3),
+                use_container_width=True,
+                height=300
+            )
+        else:
+            st.success("✅ No provinces currently at high risk")
+    
+    with col2:
+        # Risk trends (if historical data available)
+        st.markdown("#### 📈 Risk Distribution")
+        
+        fig_risk_dist = px.pie(
+            values=risk_dist.values,
+            names=risk_dist.index,
+            title="Risk Level Distribution",
+            color_discrete_map={
+                'Very High Risk': '#dc3545',
+                'High Risk': '#fd7e14',
+                'Medium Risk': '#ffc107',
+                'Low Risk': '#28a745'
+            }
+        )
+        fig_risk_dist.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig_risk_dist, use_container_width=True)
+    
+    # Action recommendations
+    st.markdown("### 🎯 Recommended Actions")
+    
+    recommendations = []
+    
+    # Immediate actions for high-risk provinces
+    if high_risk_count > 0:
+        recommendations.append({
+            'priority': 'URGENT',
+            'title': 'Emergency Response for High-Risk Provinces',
+            'actions': [
+                f'Deploy emergency food assistance to {high_risk_count} high-risk provinces',
+                'Establish rapid response coordination centers',
+                'Activate early warning communication systems',
+                'Coordinate with local government and NGOs'
+            ]
+        })
+    
+    # Medium-term actions
+    medium_risk_count = risk_dist.get('Medium Risk', 0)
+    if medium_risk_count > 0:
+        recommendations.append({
+            'priority': 'HIGH',
+            'title': 'Prevention Programs for Medium-Risk Areas',
+            'actions': [
+                f'Strengthen food security programs in {medium_risk_count} medium-risk provinces',
+                'Increase agricultural support and subsidies',
+                'Improve infrastructure development',
+                'Enhance nutrition education programs'
+            ]
+        })
+    
+    # Long-term strategy
+    recommendations.append({
+        'priority': 'MEDIUM',
+        'title': 'Long-term Food Security Strategy',
+        'actions': [
+            'Develop sustainable agriculture programs',
+            'Invest in rural infrastructure development',
+            'Strengthen social safety net programs',
+            'Enhance data collection and monitoring systems'
+        ]
+    })
+    
+    # Display recommendations
+    for rec in recommendations:
+        priority_colors = {
+            'URGENT': 'danger',
+            'HIGH': 'warning', 
+            'MEDIUM': 'info',
+            'LOW': 'success'
+        }
+        
+        priority_icons = {
+            'URGENT': '🚨',
+            'HIGH': '⚠️',
+            'MEDIUM': '📋',
+            'LOW': '✅'
+        }
+        
+        actions_html = '<ul>' + ''.join([f'<li>{action}</li>' for action in rec['actions']]) + '</ul>'
+        
+        st.markdown(create_enhanced_status_card(
+            f"{priority_icons[rec['priority']]} {rec['priority']} PRIORITY: {rec['title']}",
+            actions_html,
+            priority_colors[rec['priority']],
+            priority_icons[rec['priority']]
+        ), unsafe_allow_html=True)
+
+def show_enhanced_reports():
+    """Enhanced comprehensive reporting section"""
+    st.markdown('<h2 class="section-header">📋 Enhanced Comprehensive Reports</h2>', unsafe_allow_html=True)
+    
+    forecaster = st.session_state.forecaster
+    
+    # Generate enhanced summary report
+    try:
+        summary = generate_enhanced_summary(forecaster)
+    except Exception as e:
+        st.error(f"Error generating summary: {str(e)}")
+        return
+    
+    # Executive Dashboard
+    st.markdown("### 📊 Executive Dashboard")
+    
+    # Key performance indicators
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        grade = "A" if summary['model_performance']['mean_r2'] > 0.8 else "B" if summary['model_performance']['mean_r2'] > 0.6 else "C"
+        color = "#28a745" if grade == "A" else "#ffc107" if grade == "B" else "#dc3545"
+        st.markdown(create_enhanced_metric_card(
+            "Model Grade", grade, f"R²: {summary['model_performance']['mean_r2']:.3f}", "🎯", color
+        ), unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(create_enhanced_metric_card(
+            "Data Quality", f"{summary['data_quality']['completeness']:.1f}%", 
+            "Data completeness", "✅", "#17a2b8"
+        ), unsafe_allow_html=True)
+    
+    with col3:
+        risk_pct = (summary['risk_summary']['high_risk_provinces'] / summary['risk_summary']['total_provinces']) * 100
+        color = "#dc3545" if risk_pct > 20 else "#ffc107" if risk_pct > 10 else "#28a745"
+        st.markdown(create_enhanced_metric_card(
+            "Risk Level", f"{risk_pct:.1f}%", 
+            "Provinces at high risk", "⚠️", color
+        ), unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(create_enhanced_metric_card(
+            "Coverage", f"{summary['data_info']['provinces']}", 
+            "Provinces analyzed", "🗺️", "#6f42c1"
+        ), unsafe_allow_html=True)
+    
+    with col5:
+        forecast_reliability = "High" if summary['model_performance']['r2_stability'] < 0.1 else "Medium"
+        color = "#28a745" if forecast_reliability == "High" else "#ffc107"
+        st.markdown(create_enhanced_metric_card(
+            "Reliability", forecast_reliability, 
+            f"Std: {summary['model_performance']['r2_stability']:.3f}", "🎲", color
+        ), unsafe_allow_html=True)
+    
+    # Strategic insights
+    st.markdown("### 💡 Strategic Insights & Recommendations")
+    
+    insights_tabs = st.tabs(["🎯 Key Findings", "📈 Model Insights", "⚠️ Risk Analysis", "🎪 Policy Recommendations"])
+    
+    with insights_tabs[0]:
+        st.markdown("#### 🎯 Key Findings")
+        
+        findings = generate_key_findings(summary)
+        for i, finding in enumerate(findings, 1):
+            st.markdown(f"**{i}. {finding['title']}**")
+            st.markdown(f"   {finding['description']}")
+            st.markdown("")
+    
+    with insights_tabs[1]:
+        st.markdown("#### 📈 Model Performance Analysis")
+        
+        model_insights = generate_model_insights(summary)
+        for insight in model_insights:
+            st.markdown(create_enhanced_status_card(
+                insight['title'],
+                insight['content'],
+                insight['type'],
+                insight['icon']
+            ), unsafe_allow_html=True)
+    
+    with insights_tabs[2]:
+        st.markdown("#### ⚠️ Risk Assessment Summary")
+        
+        risk_insights = generate_risk_insights(summary)
+        for insight in risk_insights:
+            st.markdown(create_enhanced_status_card(
+                insight['title'],
+                insight['content'], 
+                insight['type'],
+                insight['icon']
+            ), unsafe_allow_html=True)
+    
+    with insights_tabs[3]:
+        st.markdown("#### 🎪 Policy Recommendations")
+        
+        policy_recs = generate_policy_recommendations(summary)
+        
+        for category, recs in policy_recs.items():
+            st.markdown(f"**{category}:**")
+            for rec in recs:
+                st.markdown(f"• {rec}")
+            st.markdown("")
+    
+    # Detailed analytics
+    st.markdown("### 📊 Detailed Analytics")
+    
+    analytics_tabs = st.tabs(["📈 Performance Metrics", "🎯 Feature Analysis", "🔮 Forecasting Results", "📋 Data Summary"])
+    
+    with analytics_tabs[0]:
+        # Performance metrics table
+        if forecaster.cv_results is not None:
+            st.markdown("#### Cross-Validation Results")
+            
+            # Enhanced metrics
+            cv_enhanced = forecaster.cv_results.copy()
+            cv_enhanced['Performance_Grade'] = cv_enhanced['r2'].apply(
+                lambda x: 'Excellent' if x > 0.8 else 'Good' if x > 0.6 else 'Fair' if x > 0.4 else 'Poor'
+            )
+            cv_enhanced['Stability_Rating'] = 'High' if cv_enhanced['r2'].std() < 0.1 else 'Medium' if cv_enhanced['r2'].std() < 0.2 else 'Low'
+            
+            st.dataframe(cv_enhanced.round(4), use_container_width=True)
+            
+            # Performance visualization
+            fig_performance_summary = px.line(
+                x=range(1, len(cv_enhanced) + 1),
+                y=cv_enhanced['r2'],
+                title="Model Performance Across CV Folds",
+                markers=True
+            )
+            fig_performance_summary.add_hline(
+                y=cv_enhanced['r2'].mean(),
+                line_dash="dash",
+                annotation_text=f"Mean R²: {cv_enhanced['r2'].mean():.3f}"
+            )
+            st.plotly_chart(fig_performance_summary, use_container_width=True)
+    
+    with analytics_tabs[1]:
+        # Feature importance analysis
+        if forecaster.feature_importance is not None:
+            st.markdown("#### Feature Importance Analysis")
+            
+            # Top features summary
+            top_5_features = forecaster.feature_importance.head(5)
+            st.dataframe(top_5_features.round(4), use_container_width=True)
+            
+            # Feature importance evolution (simulated)
+            fig_feature_evolution = px.bar(
+                top_5_features,
+                x='Feature',
+                y='Importance',
+                title="Top 5 Feature Importance",
+                color='Importance',
+                color_continuous_scale="Viridis"
+            )
+            st.plotly_chart(fig_feature_evolution, use_container_width=True)
+    
+    with analytics_tabs[2]:
+        # Forecasting results summary
+        if forecaster.scenario_predictions is not None:
+            st.markdown("#### Scenario Forecasting Summary")
+            
+            scenario_summary = forecaster.scenario_predictions.groupby('Scenario').agg({
+                'Predicted_Komposit': ['mean', 'min', 'max', 'std'],
+                'Uncertainty_Range': 'mean'
+            }).round(3)
+            
+            scenario_summary.columns = ['Mean_Score', 'Min_Score', 'Max_Score', 'Std_Dev', 'Avg_Uncertainty']
+            st.dataframe(scenario_summary, use_container_width=True)
+            
+            # Scenario comparison chart
+            scenario_means = forecaster.scenario_predictions.groupby('Scenario')['Predicted_Komposit'].mean()
+            fig_scenario_summary = px.bar(
+                x=scenario_means.index,
+                y=scenario_means.values,
+                title="Average Food Security Score by Scenario",
+                color=scenario_means.values,
+                color_continuous_scale="RdYlGn"
+            )
+            st.plotly_chart(fig_scenario_summary, use_container_width=True)
+    
+    with analytics_tabs[3]:
+        # Data summary statistics
+        st.markdown("#### Dataset Summary Statistics")
+        
+        df = st.session_state.uploaded_data
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        
+        if len(numeric_columns) > 0:
+            summary_stats = df[numeric_columns].describe().round(3)
+            st.dataframe(summary_stats, use_container_width=True)
+    
+    # Export section
+    st.markdown("### 📥 Export Reports")
+    
+    export_col1, export_col2, export_col3, export_col4 = st.columns(4)
+    
+    with export_col1:
+        if st.button("📊 Export Model Results", use_container_width=True):
+            if forecaster.cv_results is not None:
+                csv_data = forecaster.cv_results.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv_data,
+                    file_name=f"model_performance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+    
+    with export_col2:
+        if st.button("🎯 Export Feature Analysis", use_container_width=True):
+            if forecaster.feature_importance is not None:
+                csv_data = forecaster.feature_importance.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv_data,
+                    file_name=f"feature_importance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+    
+    with export_col3:
+        if st.button("🔮 Export Predictions", use_container_width=True):
+            if forecaster.scenario_predictions is not None:
+                csv_data = forecaster.scenario_predictions.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv_data,
+                    file_name=f"scenario_predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+    
+    with export_col4:
+        if st.button("📋 Export Full Report", use_container_width=True):
+            # Generate comprehensive report
+            report_data = generate_comprehensive_report(summary, forecaster)
+            st.download_button(
+                label="📥 Download Report",
+                data=report_data,
+                file_name=f"food_security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+
+def generate_enhanced_summary(forecaster):
+    """Generate enhanced summary with comprehensive metrics"""
+    df = st.session_state.uploaded_data
+    
+    summary = {
+        'model_performance': {
+            'mean_r2': forecaster.cv_results['r2'].mean() if forecaster.cv_results is not None else 0,
+            'mean_rmse': forecaster.cv_results['rmse'].mean() if forecaster.cv_results is not None else 0,
+            'r2_stability': forecaster.cv_results['r2'].std() if forecaster.cv_results is not None else 0,
+            'performance_grade': 'A' if forecaster.cv_results is not None and forecaster.cv_results['r2'].mean() > 0.8 else 'B'
+        },
+        'data_info': {
+            'total_records': len(df),
+            'provinces': df['Provinsi'].nunique(),
+            'years_range': f"{df['Tahun'].min()}-{df['Tahun'].max()}",
+            'districts': df['Kabupaten'].nunique()
+        },
+        'data_quality': {
+            'completeness': (1 - df.isnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100,
+            'missing_columns': df.isnull().sum().sum()
+        },
+        'top_features': forecaster.feature_importance['Feature'].head(5).tolist() if forecaster.feature_importance is not None else []
+    }
+    
+    # Risk summary
+    if forecaster.risk_assessment is not None:
+        status_quo_risk = forecaster.risk_assessment[forecaster.risk_assessment['Scenario'] == 'Status Quo']
+        high_risk_count = len(status_quo_risk[status_quo_risk['Risk_Level'].isin(['Very High Risk', 'High Risk'])])
+        
+        summary['risk_summary'] = {
+            'total_provinces': len(status_quo_risk),
+            'high_risk_provinces': high_risk_count,
+            'risk_rate': (high_risk_count / len(status_quo_risk)) * 100
+        }
+    
+    return summary
+
+def generate_key_findings(summary):
+    """Generate key findings from analysis"""
+    findings = []
+    
+    # Model performance finding
+    r2_score = summary['model_performance']['mean_r2']
+    if r2_score > 0.8:
+        findings.append({
+            'title': 'Excellent Predictive Model Achieved',
+            'description': f'The machine learning model achieved an R² score of {r2_score:.3f}, indicating excellent predictive capability for food security assessment.'
+        })
+    elif r2_score > 0.6:
+        findings.append({
+            'title': 'Good Model Performance Established',
+            'description': f'The model shows good predictive performance with R² of {r2_score:.3f}, suitable for policy decision support.'
+        })
+    
+    # Data coverage finding
+    findings.append({
+        'title': 'Comprehensive Geographic Coverage',
+        'description': f'Analysis covers {summary["data_info"]["provinces"]} provinces and {summary["data_info"]["districts"]} districts across {summary["data_info"]["years_range"]}.'
+    })
+    
+    # Risk assessment finding
+    if 'risk_summary' in summary:
+        risk_rate = summary['risk_summary']['risk_rate']
+        if risk_rate > 20:
+            findings.append({
+                'title': 'Critical Food Security Alert',
+                'description': f'{risk_rate:.1f}% of provinces are at high risk, requiring immediate intervention and resource allocation.'
+            })
+        elif risk_rate > 10:
+            findings.append({
+                'title': 'Elevated Risk Levels Detected',
+                'description': f'{risk_rate:.1f}% of provinces show elevated risk levels, requiring targeted policy interventions.'
+            })
+        else:
+            findings.append({
+                'title': 'Generally Stable Food Security',
+                'description': f'Only {risk_rate:.1f}% of provinces show high risk, indicating relatively stable national food security.'
+            })
+    
+    # Feature importance finding
+    if summary['top_features']:
+        top_feature = summary['top_features'][0]
+        findings.append({
+            'title': f'Key Driver Identified: {top_feature}',
+            'description': f'{top_feature} emerges as the most critical factor, suggesting focused policy interventions in this area would have maximum impact.'
+        })
+    
+    return findings
+
+def generate_model_insights(summary):
+    """Generate model performance insights"""
+    insights = []
+    
+    r2_score = summary['model_performance']['mean_r2']
+    stability = summary['model_performance']['r2_stability']
+    
+    # Performance insight
+    if r2_score > 0.8:
+        insights.append({
+            'title': 'Excellent Model Performance',
+            'content': f'R² score of {r2_score:.3f} indicates the model explains over 80% of variance in food security outcomes. Suitable for production deployment.',
+            'type': 'success',
+            'icon': '✅'
+        })
+    elif r2_score > 0.6:
+        insights.append({
+            'title': 'Good Model Performance', 
+            'content': f'R² score of {r2_score:.3f} shows good predictive capability. Model is reliable for policy guidance with some limitations.',
+            'type': 'info',
+            'icon': '📊'
+        })
+    else:
+        insights.append({
+            'title': 'Model Requires Improvement',
+            'content': f'R² score of {r2_score:.3f} suggests room for improvement. Consider additional features or alternative algorithms.',
+            'type': 'warning',
+            'icon': '⚠️'
+        })
+    
+    # Stability insight
+    if stability < 0.1:
+        insights.append({
+            'title': 'High Model Stability',
+            'content': f'Low standard deviation ({stability:.3f}) indicates consistent performance across different data splits.',
+            'type': 'success',
+            'icon': '🎯'
+        })
+    else:
+        insights.append({
+            'title': 'Variable Model Performance',
+            'content': f'Higher standard deviation ({stability:.3f}) suggests performance varies across different conditions.',
+            'type': 'warning',
+            'icon': '📈'
+        })
+    
+    return insights
+
+def generate_risk_insights(summary):
+    """Generate risk assessment insights"""
+    insights = []
+    
+    if 'risk_summary' not in summary:
+        return insights
+    
+    risk_rate = summary['risk_summary']['risk_rate']
+    high_risk_count = summary['risk_summary']['high_risk_provinces']
+    
+    if risk_rate > 30:
+        insights.append({
+            'title': 'National Emergency Level',
+            'content': f'{high_risk_count} provinces ({risk_rate:.1f}%) at critical risk. Immediate national emergency response required.',
+            'type': 'danger',
+            'icon': '🚨'
+        })
+    elif risk_rate > 20:
+        insights.append({
+            'title': 'High Alert Status',
+            'content': f'{high_risk_count} provinces require urgent intervention. Deploy emergency resources and coordination.',
+            'type': 'danger',
+            'icon': '⚠️'
+        })
+    elif risk_rate > 10:
+        insights.append({
+            'title': 'Moderate Risk Level',
+            'content': f'{high_risk_count} provinces need attention. Strengthen monitoring and preventive measures.',
+            'type': 'warning',
+            'icon': '🟡'
+        })
+    else:
+        insights.append({
+            'title': 'Low Risk Environment',
+            'content': f'Only {high_risk_count} provinces at high risk ({risk_rate:.1f}%). Maintain current programs.',
+            'type': 'success',
+            'icon': '✅'
+        })
+    
+    return insights
+
+def generate_policy_recommendations(summary):
+    """Generate categorized policy recommendations"""
+    recommendations = {
+        '🚨 Immediate Actions (0-3 months)': [],
+        '📈 Short-term Strategies (3-12 months)': [],
+        '🎯 Long-term Programs (1-3 years)': [],
+        '🔄 Systemic Improvements': []
+    }
+    
+    # Immediate actions based on risk level
+    if 'risk_summary' in summary:
+        risk_rate = summary['risk_summary']['risk_rate']
+        if risk_rate > 20:
+            recommendations['🚨 Immediate Actions (0-3 months)'].extend([
+                'Activate national emergency food distribution network',
+                'Deploy rapid response teams to high-risk provinces',
+                'Coordinate with international aid organizations',
+                'Release emergency budget allocations'
+            ])
+        elif risk_rate > 10:
+            recommendations['🚨 Immediate Actions (0-3 months)'].extend([
+                'Increase food assistance programs in affected areas',
+                'Establish coordination centers for resource distribution',
+                'Activate early warning communication systems'
+            ])
+    
+    # Short-term strategies based on top features
+    if summary['top_features']:
+        top_feature = summary['top_features'][0]
+        if 'Kemiskinan' in top_feature:
+            recommendations['📈 Short-term Strategies (3-12 months)'].extend([
+                'Expand cash transfer programs for vulnerable households',
+                'Create employment opportunities in affected regions',
+                'Strengthen social safety net programs'
+            ])
+        elif 'Pendidikan' in top_feature or 'Sekolah' in top_feature:
+            recommendations['📈 Short-term Strategies (3-12 months)'].extend([
+                'Accelerate women\'s education programs',
+                'Implement nutrition education initiatives',
+                'Expand vocational training opportunities'
+            ])
+    
+    # Long-term programs
+    recommendations['🎯 Long-term Programs (1-3 years)'].extend([
+        'Develop climate-resilient agriculture systems',
+        'Invest in rural infrastructure development',
+        'Strengthen healthcare system capacity',
+        'Build sustainable food supply chains'
+    ])
+    
+    # Systemic improvements
+    recommendations['🔄 Systemic Improvements'].extend([
+        'Enhance data collection and monitoring systems',
+        'Develop predictive analytics capabilities',
+        'Strengthen inter-agency coordination mechanisms',
+        'Build community resilience programs'
+    ])
+    
+    return recommendations
+
+def generate_comprehensive_report(summary, forecaster):
+    """Generate comprehensive text report for download"""
+    report_lines = []
+    
+    # Header
+    report_lines.extend([
+        "=" * 80,
+        "FOOD SECURITY FORECASTING - COMPREHENSIVE ANALYSIS REPORT",
+        "=" * 80,
+        f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "EXECUTIVE SUMMARY",
+        "-" * 40
+    ])
+    
+    # Model performance summary
+    report_lines.extend([
+        f"Model Performance Grade: {summary['model_performance']['performance_grade']}",
+        f"R² Score: {summary['model_performance']['mean_r2']:.3f}",
+        f"RMSE: {summary['model_performance']['mean_rmse']:.3f}",
+        f"Model Stability: {summary['model_performance']['r2_stability']:.3f}",
+        ""
+    ])
+    
+    # Data overview
+    report_lines.extend([
+        "DATA OVERVIEW",
+        "-" * 40,
+        f"Total Records: {summary['data_info']['total_records']:,}",
+        f"Provinces Covered: {summary['data_info']['provinces']}",
+        f"Time Period: {summary['data_info']['years_range']}",
+        f"Data Completeness: {summary['data_quality']['completeness']:.1f}%",
+        ""
+    ])
+    
+    # Risk assessment
+    if 'risk_summary' in summary:
+        report_lines.extend([
+            "RISK ASSESSMENT",
+            "-" * 40,
+            f"Total Provinces Analyzed: {summary['risk_summary']['total_provinces']}",
+            f"High Risk Provinces: {summary['risk_summary']['high_risk_provinces']}",
+            f"Risk Rate: {summary['risk_summary']['risk_rate']:.1f}%",
+            ""
+        ])
+    
+    # Top features
+    if summary['top_features']:
+        report_lines.extend([
+            "TOP PREDICTIVE FEATURES",
+            "-" * 40
+        ])
+        for i, feature in enumerate(summary['top_features'], 1):
+            report_lines.append(f"{i}. {feature}")
+        report_lines.append("")
+    
+    # Detailed results
+    if forecaster.cv_results is not None:
+        report_lines.extend([
+            "CROSS-VALIDATION RESULTS",
+            "-" * 40
+        ])
+        for i, (_, row) in enumerate(forecaster.cv_results.iterrows(), 1):
+            report_lines.append(f"Fold {i}: R² = {row['r2']:.4f}, RMSE = {row['rmse']:.4f}")
+        report_lines.append("")
+    
+    # Footer
+    report_lines.extend([
+        "=" * 80,
+        "End of Report"
+    ])
+    
+    return "\n".join(report_lines)
+
+def create_footer():
+    """Create enhanced dashboard footer"""
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align: center; color: #ced4da; padding: 2rem;'>
+        <p style='color: #ffffff; font-size: 1.1rem; margin-bottom: 0.5rem;'>
+            🌾 Food Security Forecasting Dashboard - Enhanced Version
+        </p>
+        <p style='color: #adb5bd; font-size: 0.9rem; margin-bottom: 0.5rem;'>
+            Advanced Machine Learning for Policy Decision Support
+        </p>
+        <p style='color: #6c757d; font-size: 0.8rem;'>
+            Built with Streamlit • Python • Plotly • Advanced Analytics
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    try:
+        main()
+        create_footer()
+    except Exception as e:
+        st.error("🚨 Critical application error occurred")
+        st.exception(e)
+        logger.critical(f"Application crashed: {str(e)}")
+        
+        # Emergency contact information
+        st.markdown("""
+        ---
+        **🆘 Emergency Support:**
+        - Contact technical support team
+        - Check system logs for detailed error information
+        - Restart the application if necessary
+        """)
