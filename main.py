@@ -918,7 +918,7 @@ def handle_analysis_error(error, context="analysis"):
     })
 
 def main():
-    """Enhanced main dashboard function"""
+    """Enhanced main dashboard function with Quick vs Advanced Forecasting"""
     initialize_session_state()
     
     # Header with improved styling
@@ -976,7 +976,7 @@ def main():
                 except Exception as e:
                     handle_analysis_error(e, "file upload")
         else:
-            if st.button("🔄 Load Sample Data"):
+            if st.button("🔄 Load Sample Data", use_container_width=True):
                 try:
                     df = load_sample_data()
                     st.session_state.uploaded_data = df
@@ -985,43 +985,31 @@ def main():
                 except Exception as e:
                     handle_analysis_error(e, "sample data generation")
         
-        # Enhanced analysis controls
+        # Enhanced analysis controls - REVISI UTAMA
         if st.session_state.uploaded_data is not None:
             st.markdown("### 🔧 Analysis Settings")
             
-            # Model parameters with explanations
-            st.markdown("#### Model Configuration")
-            n_estimators = st.slider(
-                "Number of Trees", 
-                50, 500, 200, 25,
-                help="More trees = better accuracy but slower training"
-            )
-            max_depth = st.selectbox(
-                "Max Tree Depth", 
-                [None, 5, 10, 15, 20, 30], 
-                index=0,
-                help="Limits tree depth to prevent overfitting"
-            )
+            # Quick Forecasting - Default tombol utama
+            st.markdown("#### 🚀 Quick Start")
             
-            # Cross-validation settings
-            cv_folds = st.slider("CV Folds", 3, 10, 5, help="Number of cross-validation folds")
-            
-            # Analysis execution with progress tracking
-            if st.button("🚀 Run Full Analysis", type="primary"):
+            # Quick forecasting button with default settings
+            if st.button("🚀 Run Quick Forecasting", type="primary", use_container_width=True):
                 try:
                     progress_container = st.container()
                     with progress_container:
                         progress_bar = st.progress(0)
                         status_text = st.empty()
                         
-                        # Initialize config
+                        # Initialize config with default values
                         status_text.text("Initializing configuration...")
                         progress_bar.progress(10)
                         
                         config = FoodSecurityConfig()
-                        config.PARAM_GRID['n_estimators'] = [n_estimators]
-                        if max_depth is not None:
-                            config.PARAM_GRID['max_depth'] = [max_depth]
+                        # Default settings yang optimal
+                        config.PARAM_GRID['n_estimators'] = [100]  # Default: 100 trees
+                        config.PARAM_GRID['max_depth'] = [20]      # Default: 20 levels
+                        config.PARAM_GRID['random_state'] = [42]   # Default: reproducible
+                        # CV folds default: 4 (akan di-handle di forecaster)
                         
                         # Run analysis with progress updates
                         status_text.text("Training machine learning model...")
@@ -1029,7 +1017,7 @@ def main():
                         
                         forecaster = FoodSecurityForecaster(config)
                         
-                        status_text.text("Running cross-validation...")
+                        status_text.text("Running cross-validation (4 folds)...")
                         progress_bar.progress(60)
                         
                         forecaster.run_full_analysis(st.session_state.uploaded_data)
@@ -1042,27 +1030,239 @@ def main():
                         
                         st.session_state.forecaster = forecaster
                         st.session_state.analysis_complete = True
+                        st.session_state.forecasting_method = "Quick"
+                        st.session_state.custom_settings = {
+                            'n_estimators': 100,
+                            'max_depth': 20,
+                            'cv_folds': 4,
+                            'random_state': 42
+                        }
                         
                         # Clear progress indicators
                         progress_bar.empty()
                         status_text.empty()
-                        progress_container.success("✅ Analysis completed successfully!")
+                        progress_container.success("✅ Quick analysis completed successfully!")
                         
                         st.rerun()
                         
                 except Exception as e:
-                    handle_analysis_error(e, "full analysis")
+                    handle_analysis_error(e, "quick forecasting")
+            
+            # Informasi tentang Quick Forecasting
+            st.info("🎯 **Quick Forecasting** uses optimized default settings (100 trees, depth 20, 4-fold CV) for fast and reliable results.")
+            
+            st.markdown("---")
+            
+            # Advanced Forecasting - Expandable section
+            with st.expander("⚙️ Advanced Forecasting Settings", expanded=False):
+                st.markdown("#### 🔧 Custom Model Configuration")
+                st.markdown("*Adjust these parameters for specialized analysis needs*")
+                
+                # Model parameters with explanations
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    n_estimators = st.slider(
+                        "Number of Trees", 
+                        50, 500, 100, 25,  # Default: 100
+                        help="More trees = better accuracy but slower training"
+                    )
+                    max_depth = st.selectbox(
+                        "Max Tree Depth", 
+                        [None, 5, 10, 15, 20, 30], 
+                        index=4,  # Default: 20 (index 4)
+                        help="Limits tree depth to prevent overfitting"
+                    )
+                
+                with col2:
+                    cv_folds = st.slider(
+                        "CV Folds", 
+                        3, 10, 4,  # Default: 4
+                        help="Number of cross-validation folds"
+                    )
+                    
+                    # Additional advanced options
+                    random_state = st.number_input(
+                        "Random Seed",
+                        min_value=0,
+                        max_value=9999,
+                        value=42,
+                        help="For reproducible results"
+                    )
+                
+                # Performance impact indicator
+                st.markdown("##### 📊 Expected Performance Impact")
+                
+                # Calculate relative impact
+                baseline_time = 1.0
+                current_time = (n_estimators / 100) * (1.5 if max_depth is None else max_depth / 20) * (cv_folds / 4)
+                
+                impact_cols = st.columns(3)
+                
+                with impact_cols[0]:
+                    time_color = "#28a745" if current_time <= 1.5 else "#ffc107" if current_time <= 3 else "#dc3545"
+                    st.markdown(f"**Training Time:** <span style='color: {time_color}'>{current_time:.1f}x baseline</span>", unsafe_allow_html=True)
+                
+                with impact_cols[1]:
+                    if n_estimators >= 200:
+                        accuracy_impact = "Higher accuracy"
+                        accuracy_color = "#28a745"
+                    elif n_estimators >= 100:
+                        accuracy_impact = "Standard accuracy"
+                        accuracy_color = "#17a2b8"
+                    else:
+                        accuracy_impact = "Lower accuracy"
+                        accuracy_color = "#ffc107"
+                    st.markdown(f"**Accuracy:** <span style='color: {accuracy_color}'>{accuracy_impact}</span>", unsafe_allow_html=True)
+                
+                with impact_cols[2]:
+                    if max_depth is None or max_depth > 25:
+                        overfitting_risk = "High overfitting risk"
+                        risk_color = "#dc3545"
+                    elif max_depth > 15:
+                        overfitting_risk = "Moderate risk"
+                        risk_color = "#ffc107"
+                    else:
+                        overfitting_risk = "Low overfitting risk"
+                        risk_color = "#28a745"
+                    st.markdown(f"**Overfitting:** <span style='color: {risk_color}'>{overfitting_risk}</span>", unsafe_allow_html=True)
+                
+                # Recommendation system
+                st.markdown("##### 💡 Recommendations")
+                
+                recommendations = []
+                
+                if current_time > 3:
+                    recommendations.append("⚠️ **High training time** - Consider reducing trees or depth for faster results")
+                
+                if n_estimators < 100:
+                    recommendations.append("📈 **Low tree count** - Increase to 100+ for better stability")
+                
+                if max_depth is None:
+                    recommendations.append("🎯 **Unlimited depth** - Consider limiting to 15-25 to prevent overfitting")
+                
+                if cv_folds > 7:
+                    recommendations.append("⏱️ **High CV folds** - Diminishing returns beyond 5-7 folds")
+                
+                if not recommendations:
+                    recommendations.append("✅ **Good configuration** - Settings are well-balanced")
+                
+                for rec in recommendations:
+                    st.markdown(f"- {rec}")
+                
+                # Advanced forecasting button
+                st.markdown("---")
+                if st.button("🔬 Run Advanced Forecasting", type="secondary", use_container_width=True):
+                    try:
+                        progress_container = st.container()
+                        with progress_container:
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            # Initialize config with custom settings
+                            status_text.text("Initializing custom configuration...")
+                            progress_bar.progress(10)
+                            
+                            config = FoodSecurityConfig()
+                            config.PARAM_GRID['n_estimators'] = [n_estimators]
+                            if max_depth is not None:
+                                config.PARAM_GRID['max_depth'] = [max_depth]
+                            config.PARAM_GRID['random_state'] = [random_state]
+                            
+                            # Run analysis with progress updates
+                            status_text.text(f"Training model with {n_estimators} trees...")
+                            progress_bar.progress(30)
+                            
+                            forecaster = FoodSecurityForecaster(config)
+                            
+                            status_text.text(f"Running {cv_folds}-fold cross-validation...")
+                            progress_bar.progress(60)
+                            
+                            forecaster.run_full_analysis(st.session_state.uploaded_data)
+                            
+                            status_text.text("Generating advanced predictions...")
+                            progress_bar.progress(80)
+                            
+                            status_text.text("Finalizing advanced results...")
+                            progress_bar.progress(100)
+                            
+                            st.session_state.forecaster = forecaster
+                            st.session_state.analysis_complete = True
+                            
+                            # Store advanced settings info
+                            st.session_state.forecasting_method = "Advanced"
+                            st.session_state.custom_settings = {
+                                'n_estimators': n_estimators,
+                                'max_depth': max_depth,
+                                'cv_folds': cv_folds,
+                                'random_state': random_state
+                            }
+                            
+                            # Clear progress indicators
+                            progress_bar.empty()
+                            status_text.empty()
+                            progress_container.success(f"✅ Advanced analysis completed! (Trees: {n_estimators}, Depth: {max_depth}, CV: {cv_folds})")
+                            
+                            st.rerun()
+                            
+                    except Exception as e:
+                        handle_analysis_error(e, "advanced forecasting")
+                
+                # Comparison with quick forecasting
+                st.markdown("##### ⚖️ Quick vs Advanced Comparison")
+                
+                comparison_data = {
+                    "Setting": ["Number of Trees", "Max Depth", "CV Folds", "Est. Time", "Complexity"],
+                    "Quick Forecasting": ["100", "20", "4", "1x (baseline)", "Simple"],
+                    "Your Advanced": [str(n_estimators), str(max_depth), str(cv_folds), f"{current_time:.1f}x", "Custom"]
+                }
+                
+                comparison_df = pd.DataFrame(comparison_data)
+                st.dataframe(comparison_df, use_container_width=True, hide_index=True)
         
         # Enhanced information section
         st.markdown("### ℹ️ Dashboard Information")
+        
+        # Tampilkan metode forecasting yang digunakan jika sudah ada analysis
+        if st.session_state.analysis_complete and hasattr(st.session_state, 'forecasting_method'):
+            method = getattr(st.session_state, 'forecasting_method', 'Quick')
+            if method == "Advanced" and hasattr(st.session_state, 'custom_settings'):
+                settings = st.session_state.custom_settings
+                with st.expander("🔬 Current Analysis Settings", expanded=False):
+                    st.markdown(f"""
+                    **Method:** {method} Forecasting
+                    
+                    **Model Configuration:**
+                    - **Trees:** {settings['n_estimators']}
+                    - **Max Depth:** {settings['max_depth']}
+                    - **CV Folds:** {settings['cv_folds']}
+                    - **Random Seed:** {settings['random_state']}
+                    """)
+            else:
+                with st.expander("🚀 Current Analysis Settings", expanded=False):
+                    st.markdown(f"""
+                    **Method:** Quick Forecasting (Default)
+                    
+                    **Model Configuration:**
+                    - **Trees:** 100 (optimal default)
+                    - **Max Depth:** 20 (balanced)
+                    - **CV Folds:** 4 (efficient)
+                    - **Random Seed:** 42 (standard)
+                    """)
+        
         with st.expander("📋 Features & Capabilities"):
             st.markdown("""
-            **🔧 Core Features:**
-            - Advanced data validation
-            - Real-time progress tracking  
-            - Enhanced error handling
-            - Interactive visualizations
-            - Comprehensive reporting
+            **🚀 Quick Forecasting:**
+            - One-click analysis with optimal defaults
+            - Fast results (100 trees, depth 20, 4-fold CV)
+            - Perfect for most use cases
+            - Recommended for beginners
+            
+            **🔬 Advanced Forecasting:**
+            - Full parameter customization
+            - Performance impact indicators
+            - Smart recommendations
+            - For power users and research
             
             **🤖 ML Capabilities:**
             - Random Forest modeling
@@ -1094,6 +1294,26 @@ def main():
             show_dashboard_content()
     except Exception as e:
         handle_analysis_error(e, "main content rendering")
+
+
+# TAMBAHAN: Update session state initialization function
+def initialize_session_state():
+    """Initialize session state variables"""
+    if 'forecaster' not in st.session_state:
+        st.session_state.forecaster = None
+    if 'analysis_complete' not in st.session_state:
+        st.session_state.analysis_complete = False
+    if 'uploaded_data' not in st.session_state:
+        st.session_state.uploaded_data = None
+    if 'analysis_progress' not in st.session_state:
+        st.session_state.analysis_progress = 0
+    if 'error_messages' not in st.session_state:
+        st.session_state.error_messages = []
+    # TAMBAHAN: Track forecasting method
+    if 'forecasting_method' not in st.session_state:
+        st.session_state.forecasting_method = None
+    if 'custom_settings' not in st.session_state:
+        st.session_state.custom_settings = None
 
 def show_welcome_screen():
     """Enhanced welcome screen"""
@@ -1611,7 +1831,7 @@ def show_enhanced_feature_analysis():
     )
 
 def show_enhanced_forecasting():
-    """Enhanced forecasting section with scenario analysis"""
+    """Enhanced forecasting section with scenario analysis and baseline comparison"""
     st.markdown('<h2 class="section-header">🔮 Enhanced Scenario Forecasting</h2>', unsafe_allow_html=True)
     
     forecaster = st.session_state.forecaster
@@ -1623,8 +1843,28 @@ def show_enhanced_forecasting():
     scenario_predictions = forecaster.scenario_predictions
     scenarios = scenario_predictions['Scenario'].unique()
     
-    # Scenario overview with enhanced metrics
+    # Calculate baseline (current year average) for comparison
+    df = st.session_state.uploaded_data
+    current_year = df['Tahun'].max()
+    baseline_score = df[df['Tahun'] == current_year]['Komposit'].mean()
+    
+    # Scenario overview with enhanced metrics and baseline comparison
     st.markdown("### 📊 Scenario Overview (2025 Projections)")
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); 
+                padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; 
+                border-left: 4px solid #2196f3;">
+        <p style="margin: 0; color: #1565c0; font-size: 0.95rem;">
+            <strong>📋 Tentang Skenario:</strong> Proyeksi perubahan komposit ketahanan pangan yang dipengaruhi oleh 
+            kebijakan pemerintah, kondisi ekonomi, dan program pembangunan. <strong>Skala 1-6</strong> 
+            (1: Sangat Rawan, 6: Sangat Aman).
+        </p>
+        <p style="margin: 0.5rem 0 0 0; color: #1565c0; font-size: 0.9rem;">
+            <strong>📈 Baseline {current_year}:</strong> Skor rata-rata nasional <strong>{baseline_score:.2f}</strong> 
+            → Target 2025 berbagai skenario di bawah.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
     cols = st.columns(len(scenarios))
     scenario_stats = {}
@@ -1633,6 +1873,10 @@ def show_enhanced_forecasting():
         scenario_data = scenario_predictions[scenario_predictions['Scenario'] == scenario]
         avg_prediction = scenario_data['Predicted_Komposit'].mean()
         
+        # Calculate change from baseline
+        change_from_baseline = avg_prediction - baseline_score
+        change_percentage = (change_from_baseline / baseline_score) * 100
+        
         # Calculate risk levels
         high_risk = (scenario_data['Predicted_Komposit'] <= 2).sum()
         medium_risk = ((scenario_data['Predicted_Komposit'] > 2) & (scenario_data['Predicted_Komposit'] <= 3)).sum()
@@ -1640,6 +1884,9 @@ def show_enhanced_forecasting():
         
         scenario_stats[scenario] = {
             'avg': avg_prediction,
+            'baseline': baseline_score,
+            'change': change_from_baseline,
+            'change_pct': change_percentage,
             'high_risk': high_risk,
             'medium_risk': medium_risk,
             'low_risk': low_risk,
@@ -1647,67 +1894,154 @@ def show_enhanced_forecasting():
         }
         
         with cols[i]:
-            # Determine card type
-            if "Optimistic" in scenario:
+            # Determine card type and colors based on change
+            if "Optimistic" in scenario or change_from_baseline > 0.2:
                 card_type, icon = "success", "🟢"
-            elif "Pessimistic" in scenario or "Crisis" in scenario:
+                trend_color = "#28a745"
+                trend_icon = "📈"
+            elif "Crisis" in scenario or change_from_baseline < -0.1:
                 card_type, icon = "danger", "🔴"
-            elif "Moderate" in scenario:
+                trend_color = "#dc3545"
+                trend_icon = "📉"
+            elif "Moderate" in scenario or 0 <= change_from_baseline <= 0.2:
                 card_type, icon = "info", "🔵"
+                trend_color = "#17a2b8"
+                trend_icon = "📊"
             else:
                 card_type, icon = "warning", "🟡"
+                trend_color = "#ffc107"
+                trend_icon = "📋"
             
             risk_pct = (high_risk / len(scenario_data)) * 100
             
+            # Enhanced content with baseline comparison
             content = f"""
-            <h3 style="margin: 0.5rem 0; font-size: 1.2rem;">Avg Score: {avg_prediction:.2f}</h3>
-            <p><strong>Provinces:</strong> {len(scenario_data)}</p>
-            <p><strong>High Risk:</strong> {high_risk} ({risk_pct:.1f}%)</p>
-            <p><strong>Range:</strong> {scenario_data['Predicted_Komposit'].min():.2f} - {scenario_data['Predicted_Komposit'].max():.2f}</p>
-            <p><strong>Uncertainty:</strong> ±{scenario_data['Uncertainty_Range'].mean():.2f}</p>
+            <div style="text-align: center;">
+                <h3 style="margin: 0.5rem 0; font-size: 1.3rem; color: inherit;">
+                    {baseline_score:.2f} → {avg_prediction:.2f}
+                </h3>
+                <p style="margin: 0.25rem 0; font-size: 0.9rem;">
+                    <span style="color: {trend_color}; font-weight: bold;">
+                        {trend_icon} {change_from_baseline:+.2f} ({change_percentage:+.1f}%)
+                    </span>
+                </p>
+                <hr style="margin: 0.75rem 0; border: 0; border-top: 1px solid rgba(0,0,0,0.1);">
+                <p style="margin: 0.25rem 0;"><strong>Provinces:</strong> {len(scenario_data)}</p>
+                <p style="margin: 0.25rem 0;"><strong>High Risk:</strong> {high_risk} ({risk_pct:.1f}%)</p>
+                <p style="margin: 0.25rem 0;"><strong>Range:</strong> {scenario_data['Predicted_Komposit'].min():.2f} - {scenario_data['Predicted_Komposit'].max():.2f}</p>
+                <p style="margin: 0.25rem 0;"><strong>Uncertainty:</strong> ±{scenario_data['Uncertainty_Range'].mean():.2f}</p>
+            </div>
             """
             
             st.markdown(create_enhanced_status_card(scenario, content, card_type, icon), unsafe_allow_html=True)
     
-    # Scenario comparison visualization
-    st.markdown("### 📈 Scenario Comparison")
+    # Summary comparison table
+    st.markdown("### 📈 Scenario Impact Summary")
     
-    col1, col2 = st.columns(2)
+    summary_data = []
+    for scenario in scenarios:
+        stats = scenario_stats[scenario]
+        summary_data.append({
+            'Scenario': scenario,
+            f'{current_year} Baseline': f"{stats['baseline']:.2f}",
+            '2025 Projection': f"{stats['avg']:.2f}",
+            'Change': f"{stats['change']:+.2f}",
+            'Change (%)': f"{stats['change_pct']:+.1f}%",
+            'High Risk Provinces': f"{stats['high_risk']}/{stats['total']}",
+            'Risk Rate': f"{(stats['high_risk']/stats['total']*100):.1f}%"
+        })
     
-    with col1:
-        # Box plot comparison
-        fig_comparison = px.box(
-            scenario_predictions, 
-            x='Scenario', y='Predicted_Komposit',
-            title="Food Security Score Distribution by Scenario",
-            color='Scenario'
-        )
-        fig_comparison.update_layout(height=400)
-        st.plotly_chart(fig_comparison, use_container_width=True)
+    summary_df = pd.DataFrame(summary_data)
     
-    with col2:
-        # Risk level comparison
-        risk_data = []
-        for scenario in scenarios:
-            stats = scenario_stats[scenario]
-            risk_data.extend([
-                {'Scenario': scenario, 'Risk Level': 'High Risk', 'Count': stats['high_risk']},
-                {'Scenario': scenario, 'Risk Level': 'Medium Risk', 'Count': stats['medium_risk']},
-                {'Scenario': scenario, 'Risk Level': 'Low Risk', 'Count': stats['low_risk']}
-            ])
-        
-        risk_df = pd.DataFrame(risk_data)
-        fig_risk = px.bar(
-            risk_df, x='Scenario', y='Count', color='Risk Level',
-            title="Risk Distribution by Scenario",
-            color_discrete_map={
-                'High Risk': '#dc3545',
-                'Medium Risk': '#ffc107', 
-                'Low Risk': '#28a745'
-            }
-        )
-        fig_risk.update_layout(height=400)
-        st.plotly_chart(fig_risk, use_container_width=True)
+    # Add styling to the dataframe
+    def highlight_changes(val):
+        """Color code the changes"""
+        if isinstance(val, str) and ('+' in val or '-' in val):
+            if '+' in val:
+                return 'background-color: #d4edda; color: #155724'  # Green for positive
+            elif '-' in val:
+                return 'background-color: #f8d7da; color: #721c24'  # Red for negative
+        return ''
+    
+    styled_df = summary_df.style.applymap(highlight_changes, subset=['Change', 'Change (%)'])
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    
+    # Key insights based on comparison
+    st.markdown("### 💡 Key Insights from Baseline Comparison")
+    
+    insights = []
+    
+    # Best performing scenario
+    best_scenario = max(scenario_stats.keys(), key=lambda x: scenario_stats[x]['change'])
+    best_improvement = scenario_stats[best_scenario]['change']
+    insights.append(f"🏆 **Best Case:** {best_scenario} shows the highest improvement with **+{best_improvement:.2f}** points from baseline")
+    
+    # Worst performing scenario
+    worst_scenario = min(scenario_stats.keys(), key=lambda x: scenario_stats[x]['change'])
+    worst_change = scenario_stats[worst_scenario]['change']
+    if worst_change < 0:
+        insights.append(f"⚠️ **Risk Alert:** {worst_scenario} shows decline of **{worst_change:.2f}** points from baseline")
+    
+    # Risk reduction potential
+    status_quo_risk = scenario_stats.get('Status Quo', {}).get('high_risk', 0)
+    best_risk = min([stats['high_risk'] for stats in scenario_stats.values()])
+    risk_reduction = status_quo_risk - best_risk
+    if risk_reduction > 0:
+        insights.append(f"🎯 **Intervention Potential:** Optimal policies could reduce high-risk provinces by **{risk_reduction}** (from {status_quo_risk} to {best_risk})")
+    
+    # Overall trend
+    avg_change = sum([stats['change'] for stats in scenario_stats.values()]) / len(scenario_stats)
+    if avg_change > 0:
+        insights.append(f"📈 **Overall Outlook:** Average improvement across all scenarios is **+{avg_change:.2f}** points")
+    else:
+        insights.append(f"📉 **Cautionary Note:** Average change across scenarios is **{avg_change:.2f}** points")
+    
+    for insight in insights:
+        st.markdown(f"- {insight}")
+    
+    # Visual comparison chart
+    st.markdown("### 📊 Baseline vs Projection Comparison")
+    
+    # Create comparison chart
+    comparison_data = []
+    for scenario in scenarios:
+        stats = scenario_stats[scenario]
+        comparison_data.extend([
+            {'Scenario': scenario, 'Period': f'{current_year} Baseline', 'Score': stats['baseline'], 'Type': 'Baseline'},
+            {'Scenario': scenario, 'Period': '2025 Projection', 'Score': stats['avg'], 'Type': 'Projection'}
+        ])
+    
+    comparison_df = pd.DataFrame(comparison_data)
+    
+    fig_comparison = px.bar(
+        comparison_df,
+        x='Scenario',
+        y='Score',
+        color='Type',
+        barmode='group',
+        title=f"Food Security Score: {current_year} Baseline vs 2025 Projections",
+        color_discrete_map={'Baseline': '#94a3b8', 'Projection': '#3b82f6'},
+        height=500
+    )
+    
+    # Add horizontal line for baseline average
+    fig_comparison.add_hline(
+        y=baseline_score,
+        line_dash="dash",
+        line_color="red",
+        annotation_text=f"National Baseline: {baseline_score:.2f}"
+    )
+    
+    fig_comparison.update_layout(
+        xaxis_title="Scenarios",
+        yaxis_title="Food Security Score (1-6)",
+        yaxis=dict(range=[1, 6])
+    )
+    
+    st.plotly_chart(fig_comparison, use_container_width=True)
+    
+    # Continue with existing provincial analysis and uncertainty sections...
+    # [Rest of the existing function remains the same]
     
     # Provincial analysis
     st.markdown("### 🏆 Provincial Performance Analysis")
@@ -1732,7 +2066,7 @@ def show_enhanced_forecasting():
         ].round(3)
         st.dataframe(bottom_provinces, use_container_width=True, height=350)
     
-    # Uncertainty analysis
+    # Uncertainty analysis with baseline context
     st.markdown("### 🎲 Prediction Uncertainty Analysis")
     
     # Provinces with highest uncertainty
@@ -1740,17 +2074,18 @@ def show_enhanced_forecasting():
     
     if len(high_uncertainty) > 0:
         st.markdown(create_enhanced_status_card(
-        "High Uncertainty Alert",
-        f"""
-        <p><strong>Top 5 Most Uncertain Predictions:</strong></p>
-        <p>{', '.join(high_uncertainty['Provinsi'].tolist() + high_uncertainty['Kabupaten'].tolist())}</p>
-        <p><strong>Average Uncertainty:</strong> ±{high_uncertainty['Uncertainty_Range'].mean():.3f}</p>
-        <p><strong>Recommendation:</strong> Requires additional monitoring and data collection</p>
-        """,
-        "warning", "⚠️"
-    ), unsafe_allow_html=True)
+            "High Uncertainty Alert",
+            f"""
+            <p><strong>Top 5 Most Uncertain Predictions:</strong></p>
+            <p>{', '.join(high_uncertainty['Kabupaten'].head(5).tolist())}</p>
+            <p><strong>Average Uncertainty:</strong> ±{high_uncertainty['Uncertainty_Range'].mean():.3f}</p>
+            <p><strong>Baseline Context:</strong> These provinces may deviate significantly from {baseline_score:.2f} baseline</p>
+            <p><strong>Recommendation:</strong> Requires additional monitoring and data collection</p>
+            """,
+            "warning", "⚠️"
+        ), unsafe_allow_html=True)
     
-    # Uncertainty vs prediction scatter
+    # Uncertainty vs prediction scatter with baseline reference
     fig_uncertainty = px.scatter(
         scenario_data,
         x='Predicted_Komposit', 
@@ -1761,6 +2096,15 @@ def show_enhanced_forecasting():
         color='Predicted_Komposit',
         color_continuous_scale="RdYlGn"
     )
+    
+    # Add baseline reference line
+    fig_uncertainty.add_vline(
+        x=baseline_score,
+        line_dash="dash",
+        line_color="gray",
+        annotation_text=f"{current_year} Baseline: {baseline_score:.2f}"
+    )
+    
     fig_uncertainty.update_layout(height=400)
     st.plotly_chart(fig_uncertainty, use_container_width=True)
 
