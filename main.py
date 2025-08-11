@@ -1740,15 +1740,15 @@ def show_enhanced_forecasting():
     
     if len(high_uncertainty) > 0:
         st.markdown(create_enhanced_status_card(
-            "High Uncertainty Alert",
-            f"""
-            <p><strong>Top 5 Most Uncertain Predictions:</strong></p>
-            <p>{', '.join(high_uncertainty['Provinsi'], ['Kabupaten'].tolist())}</p>
-            <p><strong>Average Uncertainty:</strong> ±{high_uncertainty['Uncertainty_Range'].mean():.3f}</p>
-            <p><strong>Recommendation:</strong> Requires additional monitoring and data collection</p>
-            """,
-            "warning", "⚠️"
-        ), unsafe_allow_html=True)
+        "High Uncertainty Alert",
+        f"""
+        <p><strong>Top 5 Most Uncertain Predictions:</strong></p>
+        <p>{', '.join(high_uncertainty['Provinsi'].tolist() + high_uncertainty['Kabupaten'].tolist())}</p>
+        <p><strong>Average Uncertainty:</strong> ±{high_uncertainty['Uncertainty_Range'].mean():.3f}</p>
+        <p><strong>Recommendation:</strong> Requires additional monitoring and data collection</p>
+        """,
+        "warning", "⚠️"
+    ), unsafe_allow_html=True)
     
     # Uncertainty vs prediction scatter
     fig_uncertainty = px.scatter(
