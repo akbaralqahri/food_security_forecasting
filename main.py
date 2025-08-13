@@ -2207,9 +2207,9 @@ def show_enhanced_risk_assessment():
             color_continuous_scale="RdYlGn"
         )
         fig_risk_map.add_vline(x=2, line_dash="dash", line_color="red", 
-                              annotation_text="High Risk Threshold")
+                                annotation_text="High Risk Threshold")
         fig_risk_map.add_vline(x=3, line_dash="dash", line_color="orange",
-                              annotation_text="Medium Risk Threshold")
+                                annotation_text="Medium Risk Threshold")
         fig_risk_map.update_layout(height=600)
         st.plotly_chart(fig_risk_map, use_container_width=True)
     
