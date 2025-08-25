@@ -94,7 +94,7 @@ class DataProcessor:
         
         # Create working dataset
         required_columns = (self.config.PREDICTOR_VARIABLES + 
-                          [self.config.TARGET_VARIABLE, 'Provinsi', 'Kabupaten', 'Tahun'])
+                        [self.config.TARGET_VARIABLE, 'Provinsi', 'Kabupaten', 'Tahun'])
         df_model = df[required_columns].copy()
         
         # Remove rows with missing values
@@ -104,14 +104,14 @@ class DataProcessor:
         
         print(f"  • Data retention: {(final_rows/initial_rows)*100:.1f}%")
         
-        # Encode categorical features
-        df_model['Provinsi_encoded'] = LabelEncoder().fit_transform(df_model['Provinsi'])
+        # ✅ HAPUS encoding - keep Provinsi for analysis only
+        # Province will be used for grouping and validation, not as predictor
         
         # Sort by time
         df_model = df_model.sort_values(['Tahun', 'Provinsi', 'Kabupaten']).reset_index(drop=True)
         
-        # Prepare features and target
-        X_features = self.config.PREDICTOR_VARIABLES + ['Provinsi_encoded']
+        # ✅ UBAH: Only use meaningful predictors
+        X_features = self.config.PREDICTOR_VARIABLES  # Remove + ['Provinsi_encoded']
         X = df_model[X_features].copy()
         y = df_model[self.config.TARGET_VARIABLE].copy()
         

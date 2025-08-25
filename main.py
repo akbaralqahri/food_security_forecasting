@@ -1765,7 +1765,7 @@ def show_enhanced_feature_analysis():
             x='Importance',
             y='Feature',
             orientation='h',
-            title="Top 10 Feature Importance",
+            title="Feature Importance",
             color='Importance',
             color_continuous_scale="Viridis"
         )

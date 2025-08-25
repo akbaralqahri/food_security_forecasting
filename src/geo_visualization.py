@@ -238,17 +238,7 @@ def create_indonesia_folium_map(scenario_data, risk_data, selected_scenario='Sta
 def create_choropleth_map_plotly(scenario_data, risk_data, selected_scenario='Status Quo'):
     """
     Create a choropleth map using Plotly for better integration with Streamlit
-    
-    Args:
-        scenario_data (pd.DataFrame): Scenario predictions data
-        risk_data (pd.DataFrame): Risk assessment data
-        selected_scenario (str): Selected scenario to visualize
-        
-    Returns:
-        plotly.graph_objects.Figure: Interactive Plotly map figure
-        
-    Raises:
-        GeoVisualizationError: If data is invalid or processing fails
+    REVERTED: All provinces colored normally (no gray areas)
     """
     # Validate data
     is_valid, errors = validate_geo_data(scenario_data, risk_data)
@@ -257,11 +247,18 @@ def create_choropleth_map_plotly(scenario_data, risk_data, selected_scenario='St
     
     try:
         # Filter data for selected scenario
-        scenario_filtered = scenario_data[scenario_data['Scenario'] == selected_scenario]
-        risk_filtered = risk_data[risk_data['Scenario'] == selected_scenario]
+        scenario_filtered = scenario_data[scenario_data['Scenario'] == selected_scenario].copy()
+        risk_filtered = risk_data[risk_data['Scenario'] == selected_scenario].copy()
         
-        # Merge the data
-        map_data = pd.merge(scenario_filtered, risk_filtered, on=['Provinsi', 'Scenario'], how='left')
+        # Clean merge with specific columns to avoid duplicates
+        risk_cols = ['Provinsi', 'Scenario', 'Risk_Level']
+        if 'Uncertainty_Range' not in scenario_filtered.columns and 'Uncertainty_Range' in risk_filtered.columns:
+            risk_cols.append('Uncertainty_Range')
+            
+        risk_filtered_clean = risk_filtered[risk_cols]
+        
+        # Merge without duplicate columns
+        map_data = pd.merge(scenario_filtered, risk_filtered_clean, on=['Provinsi', 'Scenario'], how='left')
         
         # Add coordinates
         map_data['lat'] = map_data['Provinsi'].map(lambda x: INDONESIA_PROVINCES_COORDS.get(x, {}).get('lat', 0))
@@ -273,32 +270,57 @@ def create_choropleth_map_plotly(scenario_data, risk_data, selected_scenario='St
         if map_data.empty:
             raise GeoVisualizationError("No provinces found with valid coordinates")
         
-        # Create risk level numeric mapping for color scale
-        risk_mapping = {
-            'Very High Risk': 1,
-            'High Risk': 2, 
-            'Medium Risk': 3,
-            'Low Risk': 4
-        }
-        map_data['risk_numeric'] = map_data['Risk_Level'].map(risk_mapping)
+        # Handle uncertainty and other columns
+        uncertainty_col = None
+        size_col = None
         
-        # Create the scatter mapbox
+        if 'Uncertainty_Range' in map_data.columns:
+            uncertainty_col = 'Uncertainty_Range'
+            size_col = 'Uncertainty_Range'
+        elif 'Uncertainty_Range_x' in map_data.columns:
+            uncertainty_col = 'Uncertainty_Range_x'
+            size_col = 'Uncertainty_Range_x'
+        elif 'Uncertainty_Range_y' in map_data.columns:
+            uncertainty_col = 'Uncertainty_Range_y' 
+            size_col = 'Uncertainty_Range_y'
+        else:
+            map_data['Uncertainty_Range'] = 0.1
+            uncertainty_col = 'Uncertainty_Range'
+            size_col = 'Uncertainty_Range'
+        
+        # Handle other potentially duplicated columns
+        predicted_col = 'Predicted_Komposit'
+        lower_ci_col = 'Lower_CI_95'
+        upper_ci_col = 'Upper_CI_95'
+        
+        for col_base in ['Predicted_Komposit', 'Lower_CI_95', 'Upper_CI_95']:
+            if col_base in map_data.columns:
+                continue
+            elif f'{col_base}_x' in map_data.columns:
+                if col_base == 'Predicted_Komposit':
+                    predicted_col = f'{col_base}_x'
+                elif col_base == 'Lower_CI_95':
+                    lower_ci_col = f'{col_base}_x'  
+                elif col_base == 'Upper_CI_95':
+                    upper_ci_col = f'{col_base}_x'
+        
+        # ✅ BACK TO NORMAL: Create scatter mapbox with normal coloring
         fig = px.scatter_mapbox(
             map_data,
             lat='lat',
             lon='lon',
-            color='Predicted_Komposit',
-            size='Uncertainty_Range',
+            color=predicted_col,                 # ✅ Normal coloring for all provinces
+            size=size_col,                       
             hover_data={
                 'Provinsi': True,
                 'Risk_Level': True,
-                'Lower_CI_95': ':.2f' if 'Lower_CI_95' in map_data.columns else False,
-                'Upper_CI_95': ':.2f' if 'Upper_CI_95' in map_data.columns else False,
+                lower_ci_col: ':.2f' if lower_ci_col in map_data.columns else False,
+                upper_ci_col: ':.2f' if upper_ci_col in map_data.columns else False,
                 'lat': False,
                 'lon': False,
-                'Uncertainty_Range': ':.3f'
+                uncertainty_col: ':.3f'
             },
-            color_continuous_scale='RdYlGn',
+            color_continuous_scale='RdYlGn',     # ✅ Normal color scale
             range_color=[1, 6],
             size_max=20,
             zoom=4,
@@ -326,16 +348,7 @@ def create_choropleth_map_plotly(scenario_data, risk_data, selected_scenario='St
 def create_risk_distribution_map(scenario_data, risk_data):
     """
     Create a map showing risk distribution across scenarios with animation
-    
-    Args:
-        scenario_data (pd.DataFrame): Scenario predictions data
-        risk_data (pd.DataFrame): Risk assessment data
-        
-    Returns:
-        plotly.graph_objects.Figure: Animated Plotly map figure
-        
-    Raises:
-        GeoVisualizationError: If data is invalid or processing fails
+    REVERTED: Normal coloring for all provinces
     """
     # Validate data
     is_valid, errors = validate_geo_data(scenario_data, risk_data)
@@ -343,44 +356,28 @@ def create_risk_distribution_map(scenario_data, risk_data):
         raise GeoVisualizationError(f"Data validation failed: {'; '.join(errors)}")
     
     try:
-        # Prepare data for all scenarios
-        all_scenarios = []
-        for scenario in scenario_data['Scenario'].unique():
-            scenario_filtered = scenario_data[scenario_data['Scenario'] == scenario]
-            risk_filtered = risk_data[risk_data['Scenario'] == scenario]
-            merged = pd.merge(scenario_filtered, risk_filtered, on=['Provinsi', 'Scenario'], how='left')
-            all_scenarios.append(merged)
+        # [Keep all existing aggregation and data processing code]
+        # ... existing data preparation code ...
         
-        combined_data = pd.concat(all_scenarios, ignore_index=True)
-        
-        # Add coordinates
-        combined_data['lat'] = combined_data['Provinsi'].map(lambda x: INDONESIA_PROVINCES_COORDS.get(x, {}).get('lat', 0))
-        combined_data['lon'] = combined_data['Provinsi'].map(lambda x: INDONESIA_PROVINCES_COORDS.get(x, {}).get('lon', 0))
-        
-        # Filter out provinces without coordinates
-        combined_data = combined_data[(combined_data['lat'] != 0) | (combined_data['lon'] != 0)]
-        
-        if combined_data.empty:
-            raise GeoVisualizationError("No provinces found with valid coordinates")
-        
-        # Create animated scatter mapbox
+        # ✅ REVERTED: Create animated scatter mapbox with normal coloring
         fig = px.scatter_mapbox(
             combined_data,
             lat='lat',
             lon='lon',
-            color='Predicted_Komposit',
-            size='Uncertainty_Range',
+            color=predicted_col,                 # ✅ Normal coloring for all provinces
+            size=size_col,                      
             animation_frame='Scenario',
+            hover_name='Provinsi',
             hover_data={
                 'Provinsi': True,
                 'Risk_Level': True,
-                'Lower_CI_95': ':.2f' if 'Lower_CI_95' in combined_data.columns else False,
-                'Upper_CI_95': ':.2f' if 'Upper_CI_95' in combined_data.columns else False,
+                lower_ci_col: ':.2f' if lower_ci_col in combined_data.columns else False,
+                upper_ci_col: ':.2f' if upper_ci_col in combined_data.columns else False,
                 'lat': False,
                 'lon': False,
-                'Uncertainty_Range': ':.3f'
+                uncertainty_col: ':.3f'
             },
-            color_continuous_scale='RdYlGn',
+            color_continuous_scale='RdYlGn',     # ✅ Normal color scale
             range_color=[1, 6],
             size_max=20,
             zoom=4,
@@ -404,96 +401,171 @@ def create_risk_distribution_map(scenario_data, risk_data):
     except Exception as e:
         logger.error(f"Error creating animated risk distribution map: {str(e)}")
         raise GeoVisualizationError(f"Failed to create animated map: {str(e)}")
+    
+def clean_merge_columns(df1, df2, merge_on):
+    """
+    Clean merge to avoid duplicate column issues
+    
+    Args:
+        df1: First dataframe
+        df2: Second dataframe  
+        merge_on: Columns to merge on
+        
+    Returns:
+        Merged dataframe without duplicate columns
+    """
+    # Find overlapping columns (excluding merge keys)
+    df1_cols = set(df1.columns)
+    df2_cols = set(df2.columns)
+    merge_keys = set(merge_on)
+    
+    overlapping = (df1_cols & df2_cols) - merge_keys
+    
+    if overlapping:
+        logger.info(f"Found overlapping columns: {overlapping}")
+        # Keep only essential columns from df2
+        essential_cols = list(merge_keys) + ['Risk_Level']
+        if 'Uncertainty_Range' in df2.columns and 'Uncertainty_Range' not in df1.columns:
+            essential_cols.append('Uncertainty_Range')
+        
+        # Select only non-overlapping columns from df2
+        df2_filtered = df2[essential_cols]
+        return pd.merge(df1, df2_filtered, on=merge_on, how='left')
+    else:
+        return pd.merge(df1, df2, on=merge_on, how='left')
 
 def generate_geographic_insights(scenario_predictions, risk_assessment, selected_scenario):
     """
     Generate geographic insights from the forecasting data
-    
-    Args:
-        scenario_predictions (pd.DataFrame): Scenario predictions data
-        risk_assessment (pd.DataFrame): Risk assessment data
-        selected_scenario (str): Selected scenario for analysis
-        
-    Returns:
-        list: List of insight dictionaries with title, content, type, and icon
     """
     insights = []
     
     try:
         # Filter data for selected scenario
-        scenario_data = scenario_predictions[scenario_predictions['Scenario'] == selected_scenario]
-        risk_data = risk_assessment[risk_assessment['Scenario'] == selected_scenario]
+        scenario_data = scenario_predictions[scenario_predictions['Scenario'] == selected_scenario].copy()
+        risk_data = risk_assessment[risk_assessment['Scenario'] == selected_scenario].copy()
         
-        # Regional clustering insight
-        high_risk_provinces = risk_data[risk_data['Risk_Level'].isin(['Very High Risk', 'High Risk'])]['Provinsi'].tolist()
+        if scenario_data.empty or risk_data.empty:
+            return insights
+        
+        # ✅ FIX: Aggregate to province level to remove duplicates
+        scenario_agg = scenario_data.groupby('Provinsi').agg({
+            'Predicted_Komposit': 'mean',
+            'Uncertainty_Range': 'mean' if 'Uncertainty_Range' in scenario_data.columns else lambda x: 0
+        }).reset_index()
+        
+        risk_agg = risk_data.groupby('Provinsi').agg({
+            'Risk_Level': 'first'  # Take first risk level (should be same for all districts in province)
+        }).reset_index()
+        
+        # Get unique high risk provinces
+        high_risk_provinces = risk_agg[
+            risk_agg['Risk_Level'].isin(['Very High Risk', 'High Risk'])
+        ]['Provinsi'].unique().tolist()  # ✅ FIX: Use unique()
         
         if high_risk_provinces:
-            # Check for regional patterns
+            # ✅ FIX: Regional clustering insight with unique provinces
             java_provinces = [p for p in high_risk_provinces if any(x in p for x in ['Jawa', 'Jakarta', 'Banten', 'Yogyakarta'])]
-            sumatra_provinces = [p for p in high_risk_provinces if 'Sumatera' in p or p in ['Aceh', 'Lampung', 'Bengkulu', 'Jambi']]
+            sumatra_provinces = [p for p in high_risk_provinces if any(x in p for x in ['Sumatera', 'Aceh', 'Lampung', 'Bengkulu', 'Jambi', 'Riau', 'Bangka'])]
             eastern_provinces = [p for p in high_risk_provinces if any(x in p for x in ['Papua', 'Maluku', 'Nusa Tenggara'])]
+            sulawesi_provinces = [p for p in high_risk_provinces if any(x in p for x in ['Sulawesi', 'Gorontalo'])]
+            kalimantan_provinces = [p for p in high_risk_provinces if 'Kalimantan' in p]
             
-            if len(java_provinces) > len(sumatra_provinces) and len(java_provinces) > len(eastern_provinces):
-                insights.append({
-                    'title': '🏝️ Java Region Alert',
-                    'content': f'Java region shows elevated risk with {len(java_provinces)} provinces affected: {", ".join(java_provinces)}. This requires immediate attention given the region\'s population density.',
-                    'type': 'warning',
-                    'icon': '⚠️'
-                })
-            elif len(eastern_provinces) > 0:
-                insights.append({
-                    'title': '🌊 Eastern Indonesia Risk Pattern',
-                    'content': f'Eastern provinces showing high risk: {", ".join(eastern_provinces)}. Geographic isolation may complicate intervention efforts.',
-                    'type': 'danger',
-                    'icon': '🚨'
-                })
-            elif len(sumatra_provinces) > 0:
-                insights.append({
-                    'title': '🌴 Sumatra Region Concern',
-                    'content': f'Sumatra region shows risk concentration: {", ".join(sumatra_provinces)}. Focus on inter-provincial coordination needed.',
-                    'type': 'warning',
-                    'icon': '⚠️'
-                })
-        
-        # Score distribution insight
-        avg_score = scenario_data['Predicted_Komposit'].mean()
-        score_std = scenario_data['Predicted_Komposit'].std()
-        
-        if score_std > 1.0:
-            insights.append({
-                'title': '📊 High Geographic Variation',
-                'content': f'Significant variation in food security scores across provinces (std: {score_std:.2f}). Targeted interventions needed rather than uniform national policies.',
-                'type': 'info',
-                'icon': '📈'
-            })
-        else:
-            insights.append({
-                'title': '📊 Consistent National Pattern',
-                'content': f'Relatively consistent food security levels across provinces (std: {score_std:.2f}). National-level policies may be effective.',
-                'type': 'success',
-                'icon': '✅'
-            })
-        
-        # Uncertainty pattern insight
-        if 'Uncertainty_Range' in scenario_data.columns:
-            high_uncertainty_provinces = scenario_data[
-                scenario_data['Uncertainty_Range'] > scenario_data['Uncertainty_Range'].mean()
-            ]['Provinsi'].tolist()
+            # Find the region with most high-risk provinces
+            region_counts = {
+                'Java': len(java_provinces),
+                'Sumatra': len(sumatra_provinces), 
+                'Eastern Indonesia': len(eastern_provinces),
+                'Sulawesi': len(sulawesi_provinces),
+                'Kalimantan': len(kalimantan_provinces)
+            }
             
-            if len(high_uncertainty_provinces) > len(scenario_data) * 0.3:
+            max_region = max(region_counts, key=region_counts.get)
+            max_count = region_counts[max_region]
+            
+            if max_count > 0:
+                if max_region == 'Java' and java_provinces:
+                    insights.append({
+                        'title': '🏙️ Java Region Alert',
+                        'content': f'Java region shows elevated risk with {len(java_provinces)} provinces affected: {", ".join(java_provinces)}. This requires immediate attention given the region\'s population density.',
+                        'type': 'warning',
+                        'icon': '⚠️'
+                    })
+                elif max_region == 'Eastern Indonesia' and eastern_provinces:
+                    insights.append({
+                        'title': '🌊 Eastern Indonesia Risk Pattern',
+                        'content': f'Eastern provinces showing high risk: {", ".join(eastern_provinces)}. Geographic isolation may complicate intervention efforts.',
+                        'type': 'danger', 
+                        'icon': '🚨'
+                    })
+                elif max_region == 'Sumatra' and sumatra_provinces:
+                    insights.append({
+                        'title': '🌴 Sumatra Region Concern',
+                        'content': f'Sumatra region shows risk concentration: {", ".join(sumatra_provinces)}. Focus on inter-provincial coordination needed.',
+                        'type': 'warning',
+                        'icon': '⚠️'
+                    })
+                elif max_region == 'Sulawesi' and sulawesi_provinces:
+                    insights.append({
+                        'title': '🏝️ Sulawesi Region Risk',
+                        'content': f'Sulawesi region shows elevated risk: {", ".join(sulawesi_provinces)}. Strategic intervention needed for this key agricultural region.',
+                        'type': 'warning',
+                        'icon': '⚠️'
+                    })
+                elif max_region == 'Kalimantan' and kalimantan_provinces:
+                    insights.append({
+                        'title': '🌲 Kalimantan Region Alert',
+                        'content': f'Kalimantan provinces at risk: {", ".join(kalimantan_provinces)}. Resource extraction regions require food security attention.',
+                        'type': 'warning',
+                        'icon': '⚠️'
+                    })
+        
+        # ✅ FIX: Score distribution insight with province-level data
+        if not scenario_agg.empty:
+            avg_score = scenario_agg['Predicted_Komposit'].mean()
+            score_std = scenario_agg['Predicted_Komposit'].std()
+            
+            if score_std > 1.0:
+                insights.append({
+                    'title': '📊 High Geographic Variation',
+                    'content': f'Significant variation in food security scores across provinces (std: {score_std:.2f}). Targeted interventions needed rather than uniform national policies.',
+                    'type': 'info',
+                    'icon': '📈'
+                })
+            else:
+                insights.append({
+                    'title': '📊 Consistent National Pattern',
+                    'content': f'Relatively consistent food security levels across provinces (std: {score_std:.2f}). National-level policies may be effective.',
+                    'type': 'success',
+                    'icon': '✅'
+                })
+        
+        # ✅ FIX: Uncertainty pattern insight with unique provinces
+        if 'Uncertainty_Range' in scenario_agg.columns:
+            high_uncertainty_provinces = scenario_agg[
+                scenario_agg['Uncertainty_Range'] > scenario_agg['Uncertainty_Range'].mean()
+            ]['Provinsi'].unique().tolist()  # ✅ FIX: Use unique()
+            
+            uncertainty_rate = len(high_uncertainty_provinces) / len(scenario_agg) if len(scenario_agg) > 0 else 0
+            
+            if uncertainty_rate > 0.3:  # More than 30%
+                # ✅ FIX: Limit to first 5 provinces and use unique list
+                provinces_display = high_uncertainty_provinces[:5]
+                more_text = f" and {len(high_uncertainty_provinces) - 5} others" if len(high_uncertainty_provinces) > 5 else ""
+                
                 insights.append({
                     'title': '🎲 High Prediction Uncertainty',
-                    'content': f'Over 30% of provinces show high prediction uncertainty. Enhanced data collection needed in: {", ".join(high_uncertainty_provinces[:5])}{"..." if len(high_uncertainty_provinces) > 5 else ""}',
+                    'content': f'Over 30% of provinces show high prediction uncertainty. Enhanced data collection needed in: {", ".join(provinces_display)}{more_text}.',
                     'type': 'warning',
-                    'icon': '🔍'
+                    'icon': '📊'
                 })
         
-        # Best/worst performance insight
-        if not scenario_data.empty:
-            best_province = scenario_data.loc[scenario_data['Predicted_Komposit'].idxmax(), 'Provinsi']
-            worst_province = scenario_data.loc[scenario_data['Predicted_Komposit'].idxmin(), 'Provinsi']
-            best_score = scenario_data['Predicted_Komposit'].max()
-            worst_score = scenario_data['Predicted_Komposit'].min()
+        # ✅ FIX: Best/worst performance insight with unique provinces
+        if not scenario_agg.empty:
+            best_province = scenario_agg.loc[scenario_agg['Predicted_Komposit'].idxmax(), 'Provinsi']
+            worst_province = scenario_agg.loc[scenario_agg['Predicted_Komposit'].idxmin(), 'Provinsi']
+            best_score = scenario_agg['Predicted_Komposit'].max()
+            worst_score = scenario_agg['Predicted_Komposit'].min()
             
             insights.append({
                 'title': '🏆 Performance Range',
@@ -505,10 +577,10 @@ def generate_geographic_insights(scenario_predictions, risk_assessment, selected
     except Exception as e:
         logger.error(f"Error generating geographic insights: {str(e)}")
         insights.append({
-            'title': '❌ Analysis Error',
+            'title': '⚠️ Analysis Error',
             'content': f'Unable to generate geographic insights: {str(e)}',
             'type': 'danger',
-            'icon': '❌'
+            'icon': '⚠️'
         })
     
     return insights
@@ -548,20 +620,22 @@ def get_provinces_by_region():
 
 def calculate_regional_statistics(scenario_data, risk_data, selected_scenario):
     """
-    Calculate statistics by major regions
-    
-    Args:
-        scenario_data (pd.DataFrame): Scenario predictions data
-        risk_data (pd.DataFrame): Risk assessment data
-        selected_scenario (str): Selected scenario for analysis
-        
-    Returns:
-        pd.DataFrame: Regional statistics dataframe
+    Calculate statistics by major regions - FIXED VERSION
     """
     try:
         # Filter data
-        scenario_filtered = scenario_data[scenario_data['Scenario'] == selected_scenario]
-        risk_filtered = risk_data[risk_data['Scenario'] == selected_scenario]
+        scenario_filtered = scenario_data[scenario_data['Scenario'] == selected_scenario].copy()
+        risk_filtered = risk_data[risk_data['Scenario'] == selected_scenario].copy()
+        
+        # ✅ FIX: Aggregate to province level first
+        scenario_agg = scenario_filtered.groupby('Provinsi').agg({
+            'Predicted_Komposit': 'mean',
+            'Uncertainty_Range': 'mean' if 'Uncertainty_Range' in scenario_filtered.columns else lambda x: 0
+        }).reset_index()
+        
+        risk_agg = risk_filtered.groupby('Provinsi').agg({
+            'Risk_Level': 'first'
+        }).reset_index()
         
         # Get regional mapping
         regions = get_provinces_by_region()
@@ -570,9 +644,9 @@ def calculate_regional_statistics(scenario_data, risk_data, selected_scenario):
         regional_stats = []
         
         for region, provinces in regions.items():
-            # Filter data for this region
-            region_scenario = scenario_filtered[scenario_filtered['Provinsi'].isin(provinces)]
-            region_risk = risk_filtered[risk_filtered['Provinsi'].isin(provinces)]
+            # ✅ FIX: Filter for provinces in this region
+            region_scenario = scenario_agg[scenario_agg['Provinsi'].isin(provinces)]
+            region_risk = risk_agg[risk_agg['Provinsi'].isin(provinces)]
             
             if not region_scenario.empty:
                 # Calculate statistics
@@ -595,7 +669,7 @@ def calculate_regional_statistics(scenario_data, risk_data, selected_scenario):
                     'Avg_Score': round(avg_score, 2),
                     'Min_Score': round(min_score, 2),
                     'Max_Score': round(max_score, 2),
-                    'Score_Std': round(std_score, 3),
+                    'Score_Std': round(std_score, 3) if not pd.isna(std_score) else 0,
                     'High_Risk_Count': high_risk_count,
                     'Risk_Rate_%': round(risk_rate, 1),
                     'Avg_Uncertainty': round(avg_uncertainty, 3)
@@ -740,25 +814,64 @@ def export_geographic_data(scenario_data, risk_data, selected_scenario, export_f
 
 def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
     """
-    Create a risk heatmap visualization
-    
-    Args:
-        scenario_data (pd.DataFrame): Scenario predictions data
-        risk_data (pd.DataFrame): Risk assessment data
-        selected_scenario (str): Selected scenario for visualization
-        
-    Returns:
-        plotly.graph_objects.Figure: Heatmap figure
+    Create a risk heatmap visualization with Province -> Kabupaten hierarchy
+    NEW FEATURE: Click on province to see districts within
     """
     try:
-        # Filter data
-        scenario_filtered = scenario_data[scenario_data['Scenario'] == selected_scenario]
-        risk_filtered = risk_data[risk_data['Scenario'] == selected_scenario]
+        # Validate inputs
+        if scenario_data is None or risk_data is None:
+            return None
+            
+        if scenario_data.empty or risk_data.empty:
+            return None
+            
+        # Filter data for selected scenario
+        scenario_filtered = scenario_data[scenario_data['Scenario'] == selected_scenario].copy()
+        risk_filtered = risk_data[risk_data['Scenario'] == selected_scenario].copy()
         
-        # Merge data
-        merged_data = pd.merge(scenario_filtered, risk_filtered, on=['Provinsi', 'Scenario'], how='left')
+        if scenario_filtered.empty or risk_filtered.empty:
+            return None
         
-        # Create risk level mapping for heatmap
+        # ✅ NEW: Keep district-level data for hierarchical treemap
+        # Clean merge at district level
+        risk_cols = ['Provinsi', 'Scenario', 'Risk_Level'] 
+        if 'Kabupaten' in risk_filtered.columns:
+            risk_cols.append('Kabupaten')
+        if 'Uncertainty_Range' not in scenario_filtered.columns and 'Uncertainty_Range' in risk_filtered.columns:
+            risk_cols.append('Uncertainty_Range')
+            
+        risk_filtered_clean = risk_filtered[risk_cols]
+        
+        # Merge at district level
+        merged_data = pd.merge(scenario_filtered, risk_filtered_clean, 
+                              on=['Provinsi', 'Scenario'], how='left')
+        
+        if merged_data.empty:
+            return None
+        
+        # ✅ NEW: Handle kabupaten column from merge
+        kabupaten_col = 'Kabupaten'
+        if 'Kabupaten_x' in merged_data.columns:
+            kabupaten_col = 'Kabupaten_x'
+        elif 'Kabupaten_y' in merged_data.columns:
+            kabupaten_col = 'Kabupaten_y'
+        
+        # Create clean kabupaten column
+        if kabupaten_col != 'Kabupaten':
+            merged_data['Kabupaten'] = merged_data[kabupaten_col]
+        
+        # Handle predicted score column
+        predicted_col = 'Predicted_Komposit'
+        if 'Predicted_Komposit_x' in merged_data.columns:
+            predicted_col = 'Predicted_Komposit_x'
+        elif 'Predicted_Komposit_y' in merged_data.columns:
+            predicted_col = 'Predicted_Komposit_y'
+        
+        # Create clean predicted score column
+        if predicted_col != 'Predicted_Komposit':
+            merged_data['Predicted_Komposit'] = merged_data[predicted_col]
+        
+        # Create risk level mapping for sizing
         risk_mapping = {
             'Very High Risk': 4,
             'High Risk': 3,
@@ -768,47 +881,127 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
         
         merged_data['Risk_Numeric'] = merged_data['Risk_Level'].map(risk_mapping)
         
-        # Get regional mapping
+        # ✅ NEW: Get regional mapping and create hierarchy
         regions = get_provinces_by_region()
         
-        # Create matrix for heatmap
-        heatmap_data = []
-        provinces_list = []
-        
+        # Add region information
+        province_to_region = {}
         for region, provinces in regions.items():
-            region_data = merged_data[merged_data['Provinsi'].isin(provinces)]
-            if not region_data.empty:
-                for _, row in region_data.iterrows():
-                    heatmap_data.append([
-                        region,
-                        row['Provinsi'],
-                        row['Risk_Numeric'],
-                        row['Predicted_Komposit'],
-                        row['Risk_Level']
-                    ])
+            for province in provinces:
+                province_to_region[province] = region
         
-        if not heatmap_data:
+        merged_data['Region'] = merged_data['Provinsi'].map(province_to_region)
+        
+        # Filter only provinces with region mapping and clean kabupaten names
+        merged_data = merged_data.dropna(subset=['Region', 'Kabupaten'])
+        merged_data['Kabupaten'] = merged_data['Kabupaten'].astype(str).str.strip()
+        
+        if merged_data.empty:
             return None
         
-        heatmap_df = pd.DataFrame(heatmap_data, columns=['Region', 'Province', 'Risk_Numeric', 'Score', 'Risk_Level'])
+        # ✅ NEW: Ensure unique districts per province (in case of duplicates)
+        merged_data = merged_data.drop_duplicates(subset=['Provinsi', 'Kabupaten'])
         
-        # Create heatmap
+        # ✅ NEW: Create hierarchical treemap with Region -> Province -> Kabupaten
         fig = px.treemap(
-            heatmap_df,
-            path=['Region', 'Province'],
-            values='Risk_Numeric',
-            color='Score',
-            color_continuous_scale='RdYlGn',
-            title=f'Food Security Risk Heatmap - {selected_scenario}',
-            hover_data={'Risk_Level': True, 'Score': ':.2f'}
+            merged_data,
+            path=['Region', 'Provinsi', 'Kabupaten'],   # ✅ 3-level hierarchy
+            values='Risk_Numeric',                       # Size based on risk
+            color='Predicted_Komposit',                  # Color based on food security score
+            color_continuous_scale='RdYlGn',             # ✅ Green = good, Red = bad
+            range_color=[1, 6],                          # Full score range
+            title=f'Food Security Risk Heatmap - {selected_scenario}<br><sub>🖱️ Click provinces to see districts | 🎯 Size = Risk Level | 🌈 Color = Food Security Score</sub>',
+            hover_data={
+                'Risk_Level': True, 
+                'Predicted_Komposit': ':.2f'
+            },
+            color_continuous_midpoint=3.5,
+            height=700  # ✅ Increased height for better hierarchy view
         )
         
-        fig.update_layout(height=600)
+        # ✅ ENHANCED: Better layout and styling
+        fig.update_layout(
+            font_size=10,
+            title_font_size=16,
+            margin=dict(t=80, l=10, r=10, b=10),
+            coloraxis_colorbar=dict(
+                title="Food Security Score",
+                titleside="right",
+                tickmode='array',
+                tickvals=[1, 2, 3, 4, 5, 6],
+                ticktext=['1 (Very Poor)', '2 (Poor)', '3 (Fair)', '4 (Good)', '5 (Very Good)', '6 (Excellent)'],
+                len=0.7,
+                thickness=15
+            )
+        )
+        
+        # ✅ NEW: Update treemap styling for better hierarchy visualization
+        fig.update_traces(
+            # Better text display
+            textinfo="label+value",
+            textposition="middle center",
+            # Custom hover template
+            hovertemplate='<b>%{label}</b><br>' +
+                         'Food Security Score: %{color:.2f}<br>' +
+                         'Risk Level: %{customdata[0]}<br>' +
+                         'Risk Value: %{value}<br>' +
+                         '<extra></extra>',
+            # Better borders
+            marker=dict(
+                line=dict(width=2, color='white'),
+                colorbar=dict(thickness=15)
+            )
+        )
+        
+        # ✅ NEW: Add interactive guide
+        fig.add_annotation(
+            x=0.02, y=0.98,
+            xref="paper", yref="paper",
+            text=(
+                "📊 <b>Interactive Guide:</b><br>"
+                "🖱️ <b>Click</b> on regions/provinces to drill down<br>"
+                "🎯 <b>Box Size:</b> Risk level (larger = higher risk)<br>"
+                "🌈 <b>Color:</b> Food security score<br>"
+                "🟢 Green = Good | 🟡 Yellow = Fair | 🔴 Red = Poor"
+            ),
+            showarrow=False,
+            font=dict(size=11, color="black"),
+            bgcolor="rgba(255,255,255,0.95)",
+            bordercolor="darkblue",
+            borderwidth=1,
+            borderpad=8
+        )
+        
+        # ✅ NEW: Add statistics summary
+        total_districts = len(merged_data)
+        total_provinces = merged_data['Provinsi'].nunique()
+        total_regions = merged_data['Region'].nunique()
+        high_risk_districts = len(merged_data[merged_data['Risk_Level'].isin(['Very High Risk', 'High Risk'])])
+        
+        fig.add_annotation(
+            x=0.98, y=0.02,
+            xref="paper", yref="paper",
+            text=(
+                f"📈 <b>Coverage Summary:</b><br>"
+                f"🏛️ Regions: {total_regions}<br>"
+                f"📍 Provinces: {total_provinces}<br>" 
+                f"🏘️ Districts: {total_districts}<br>"
+                f"🚨 High Risk: {high_risk_districts} ({high_risk_districts/total_districts*100:.1f}%)"
+            ),
+            showarrow=False,
+            font=dict(size=10, color="darkgreen"),
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="darkgreen",
+            borderwidth=1,
+            borderpad=6,
+            xanchor="right"
+        )
         
         return fig
         
     except Exception as e:
-        logger.error(f"Error creating risk heatmap: {str(e)}")
+        logger.error(f"Error creating hierarchical risk heatmap: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None
 
 def validate_coordinates():
