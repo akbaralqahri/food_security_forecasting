@@ -348,7 +348,7 @@ def create_choropleth_map_plotly(scenario_data, risk_data, selected_scenario='St
 def create_risk_distribution_map(scenario_data, risk_data):
     """
     Create a map showing risk distribution across scenarios with animation
-    REVERTED: Normal coloring for all provinces
+    FIXED: Complete implementation with proper variable definitions
     """
     # Validate data
     is_valid, errors = validate_geo_data(scenario_data, risk_data)
@@ -356,50 +356,199 @@ def create_risk_distribution_map(scenario_data, risk_data):
         raise GeoVisualizationError(f"Data validation failed: {'; '.join(errors)}")
     
     try:
-        # [Keep all existing aggregation and data processing code]
-        # ... existing data preparation code ...
+        # ✅ FIX: Prepare data for all scenarios with proper aggregation
+        all_scenarios = []
         
-        # ✅ REVERTED: Create animated scatter mapbox with normal coloring
+        for scenario in scenario_data['Scenario'].unique():
+            scenario_filtered = scenario_data[scenario_data['Scenario'] == scenario].copy()
+            risk_filtered = risk_data[risk_data['Scenario'] == scenario].copy()
+            
+            if scenario_filtered.empty or risk_filtered.empty:
+                continue
+            
+            # Aggregate to province level first to remove duplicates
+            scenario_agg = scenario_filtered.groupby(['Provinsi', 'Scenario']).agg({
+                'Predicted_Komposit': 'mean',
+                'Lower_CI_95': 'mean' if 'Lower_CI_95' in scenario_filtered.columns else lambda x: 0,
+                'Upper_CI_95': 'mean' if 'Upper_CI_95' in scenario_filtered.columns else lambda x: 0,
+                'Uncertainty_Range': 'mean' if 'Uncertainty_Range' in scenario_filtered.columns else lambda x: 0.1,
+                'Prediction_Std': 'mean' if 'Prediction_Std' in scenario_filtered.columns else lambda x: 0
+            }).reset_index()
+            
+            risk_agg = risk_filtered.groupby(['Provinsi', 'Scenario']).agg({
+                'Risk_Level': 'first'  # Take first risk level (should be same for all districts in province)
+            }).reset_index()
+            
+            # Clean merge to avoid duplicate columns
+            merged = pd.merge(scenario_agg, risk_agg, on=['Provinsi', 'Scenario'], how='left')
+            
+            if not merged.empty:
+                all_scenarios.append(merged)
+        
+        if not all_scenarios:
+            raise GeoVisualizationError("No valid scenario data found")
+        
+        # ✅ FIX: This is where combined_data should be defined
+        combined_data = pd.concat(all_scenarios, ignore_index=True)
+        
+        # Add coordinates
+        combined_data['lat'] = combined_data['Provinsi'].map(
+            lambda x: INDONESIA_PROVINCES_COORDS.get(x, {}).get('lat', 0)
+        )
+        combined_data['lon'] = combined_data['Provinsi'].map(
+            lambda x: INDONESIA_PROVINCES_COORDS.get(x, {}).get('lon', 0)
+        )
+        
+        # Filter out provinces without coordinates
+        combined_data = combined_data[(combined_data['lat'] != 0) | (combined_data['lon'] != 0)]
+        
+        if combined_data.empty:
+            raise GeoVisualizationError("No provinces found with valid coordinates")
+        
+        # Handle uncertainty column smartly (already aggregated, so should exist)
+        uncertainty_col = 'Uncertainty_Range'
+        size_col = 'Uncertainty_Range'
+        
+        # Ensure uncertainty column exists and has valid values
+        if uncertainty_col not in combined_data.columns or combined_data[uncertainty_col].isna().all():
+            combined_data[uncertainty_col] = 0.1
+            logger.warning("Uncertainty_Range not found, using default value 0.1")
+        
+        # Ensure size values are positive and reasonable
+        combined_data[size_col] = combined_data[size_col].fillna(0.1)
+        combined_data[size_col] = combined_data[size_col].clip(lower=0.01, upper=2.0)  # Reasonable range
+        
+        # Handle prediction columns (already aggregated)
+        predicted_col = 'Predicted_Komposit'
+        lower_ci_col = 'Lower_CI_95'
+        upper_ci_col = 'Upper_CI_95'
+        
+        # Ensure required columns exist
+        required_cols = [predicted_col, lower_ci_col, upper_ci_col]
+        for col in required_cols:
+            if col not in combined_data.columns:
+                combined_data[col] = 0
+                logger.warning(f"Column {col} not found, using default value 0")
+        
+        # Create enhanced hover text
+        combined_data['hover_text'] = combined_data.apply(
+            lambda row: (
+                f"<b>{row['Provinsi']}</b><br>"
+                f"Scenario: {row['Scenario']}<br>"
+                f"Food Security Score: {row[predicted_col]:.2f}<br>"
+                f"Risk Level: {row['Risk_Level']}<br>"
+                f"95% CI: [{row[lower_ci_col]:.2f}, {row[upper_ci_col]:.2f}]<br>"
+                f"Uncertainty: ±{row[uncertainty_col]:.3f}"
+            ),
+            axis=1
+        )
+        
+        # Create animated scatter mapbox with all fixes
         fig = px.scatter_mapbox(
             combined_data,
             lat='lat',
             lon='lon',
-            color=predicted_col,                 # ✅ Normal coloring for all provinces
-            size=size_col,                      
+            color=predicted_col,              # Normal coloring for all provinces
+            size=size_col,                    # Use fixed size column
             animation_frame='Scenario',
             hover_name='Provinsi',
-            hover_data={
-                'Provinsi': True,
-                'Risk_Level': True,
-                lower_ci_col: ':.2f' if lower_ci_col in combined_data.columns else False,
-                upper_ci_col: ':.2f' if upper_ci_col in combined_data.columns else False,
-                'lat': False,
-                'lon': False,
-                uncertainty_col: ':.3f'
-            },
-            color_continuous_scale='RdYlGn',     # ✅ Normal color scale
-            range_color=[1, 6],
-            size_max=20,
+            custom_data=['Risk_Level', predicted_col, lower_ci_col, upper_ci_col, uncertainty_col],
+            color_continuous_scale='RdYlGn',  # Normal color scale
+            range_color=[1, 6],               # Full range
+            size_max=25,
             zoom=4,
             center=dict(lat=-2.5, lon=118.0),
-            title='Food Security Risk Across Scenarios',
-            height=600
+            title='Food Security Risk Across Scenarios<br><sub>▶️ Play to see changes across different scenarios</sub>',
+            height=650
         )
         
-        # Update layout
+        # Update hover template for better information
+        fig.update_traces(
+            hovertemplate=(
+                "<b>%{hovertext}</b><br>"
+                "Risk Level: %{customdata[0]}<br>"
+                "Food Security Score: %{customdata[1]:.2f}<br>"
+                "95% CI: [%{customdata[2]:.2f}, %{customdata[3]:.2f}]<br>"
+                "Uncertainty: ±%{customdata[4]:.3f}<br>"
+                "<extra></extra>"
+            ),
+            hovertext=combined_data['hover_text']
+        )
+        
+        # Enhanced: Update layout with better styling
         fig.update_layout(
             mapbox_style="open-street-map",
-            margin=dict(r=0, t=50, l=0, b=0),
+            margin=dict(r=0, t=100, l=0, b=0),
             coloraxis_colorbar=dict(
                 title="Food Security Score",
-                titleside="right"
-            )
+                titleside="right",
+                tickmode='array',
+                tickvals=[1, 2, 3, 4, 5, 6],
+                ticktext=[
+                    '1 (Very Poor)', 
+                    '2 (Poor)', 
+                    '3 (Fair)', 
+                    '4 (Good)', 
+                    '5 (Very Good)', 
+                    '6 (Excellent)'
+                ],
+                len=0.8,
+                thickness=20
+            ),
+            font=dict(size=12),
+            title_font_size=16
         )
+        
+        # Add informative annotations
+        fig.add_annotation(
+            x=0.02, y=0.98,
+            xref="paper", yref="paper",
+            text=(
+                "🎬 <b>Animation Guide:</b><br>"
+                "▶️ Play to see scenario changes<br>"
+                "⏸️ Pause to examine details<br>"
+                "🔄 Use slider to jump between scenarios"
+            ),
+            showarrow=False,
+            font=dict(size=11, color="darkblue"),
+            bgcolor="rgba(255,255,255,0.95)",
+            bordercolor="darkblue",
+            borderwidth=1,
+            borderpad=8
+        )
+        
+        # Add statistics summary
+        total_provinces = combined_data['Provinsi'].nunique()
+        total_scenarios = combined_data['Scenario'].nunique()
+        
+        fig.add_annotation(
+            x=0.98, y=0.02,
+            xref="paper", yref="paper",
+            text=(
+                f"📍 <b>Coverage:</b><br>"
+                f"Provinces: {total_provinces}<br>"
+                f"Scenarios: {total_scenarios}<br>"
+                f"📊 Size = Uncertainty"
+            ),
+            showarrow=False,
+            font=dict(size=10, color="darkgreen"),
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="darkgreen", 
+            borderwidth=1,
+            borderpad=6,
+            xanchor="right"
+        )
+        
+        # Optimize animation settings
+        if len(fig.frames) > 0:  # Check if frames exist
+            fig.layout.updatemenus[0].buttons[0].args[1]['frame']['duration'] = 2000  # 2 seconds per frame
+            fig.layout.updatemenus[0].buttons[0].args[1]['transition']['duration'] = 500  # 0.5 second transition
         
         return fig
         
     except Exception as e:
         logger.error(f"Error creating animated risk distribution map: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise GeoVisualizationError(f"Failed to create animated map: {str(e)}")
     
 def clean_merge_columns(df1, df2, merge_on):
@@ -815,28 +964,55 @@ def export_geographic_data(scenario_data, risk_data, selected_scenario, export_f
 def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
     """
     Create a risk heatmap visualization with Province -> Kabupaten hierarchy
-    NEW FEATURE: Click on province to see districts within
+    FIXED: Handle missing Kabupaten column gracefully
     """
     try:
         # Validate inputs
         if scenario_data is None or risk_data is None:
+            logger.error("Input data is None")
             return None
             
         if scenario_data.empty or risk_data.empty:
+            logger.error("Input data is empty")
             return None
-            
+        
+        # DEBUG: Log available provinces
+        all_provinces = scenario_data['Provinsi'].unique()
+        logger.info(f"All provinces in data: {sorted(all_provinces)}")
+        
         # Filter data for selected scenario
         scenario_filtered = scenario_data[scenario_data['Scenario'] == selected_scenario].copy()
         risk_filtered = risk_data[risk_data['Scenario'] == selected_scenario].copy()
         
         if scenario_filtered.empty or risk_filtered.empty:
+            logger.error("Filtered data is empty")
             return None
         
-        # ✅ NEW: Keep district-level data for hierarchical treemap
+        # DEBUG: Check Maluku in filtered data
+        maluku_in_scenario = scenario_filtered[scenario_filtered['Provinsi'].str.contains('Maluku', case=False, na=False)]
+        maluku_in_risk = risk_filtered[risk_filtered['Provinsi'].str.contains('Maluku', case=False, na=False)]
+        logger.info(f"Maluku records in scenario data: {len(maluku_in_scenario)}")
+        logger.info(f"Maluku records in risk data: {len(maluku_in_risk)}")
+        
+        # ✅ DEBUG: Check if Kabupaten column exists
+        has_kabupaten_scenario = 'Kabupaten' in scenario_filtered.columns
+        has_kabupaten_risk = 'Kabupaten' in risk_filtered.columns
+        logger.info(f"Kabupaten in scenario_filtered: {has_kabupaten_scenario}")
+        logger.info(f"Kabupaten in risk_filtered: {has_kabupaten_risk}")
+        
         # Clean merge at district level
-        risk_cols = ['Provinsi', 'Scenario', 'Risk_Level'] 
+        risk_cols = ['Provinsi', 'Scenario', 'Risk_Level']
+        
+        # ✅ UPDATED: Check both dataframes for Kabupaten
+        kabupaten_source = None
         if 'Kabupaten' in risk_filtered.columns:
             risk_cols.append('Kabupaten')
+            kabupaten_source = 'risk'
+        elif 'Kabupaten' in scenario_filtered.columns:
+            kabupaten_source = 'scenario'
+            
+        logger.info(f"Kabupaten source: {kabupaten_source}")
+        
         if 'Uncertainty_Range' not in scenario_filtered.columns and 'Uncertainty_Range' in risk_filtered.columns:
             risk_cols.append('Uncertainty_Range')
             
@@ -847,18 +1023,45 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
                               on=['Provinsi', 'Scenario'], how='left')
         
         if merged_data.empty:
+            logger.error("Merged data is empty")
             return None
         
-        # ✅ NEW: Handle kabupaten column from merge
-        kabupaten_col = 'Kabupaten'
-        if 'Kabupaten_x' in merged_data.columns:
+        # DEBUG: Check Maluku after merge
+        maluku_after_merge = merged_data[merged_data['Provinsi'].str.contains('Maluku', case=False, na=False)]
+        logger.info(f"Maluku records after merge: {len(maluku_after_merge)}")
+        logger.info(f"Merged data columns: {list(merged_data.columns)}")
+        
+        # ✅ FIXED: Handle kabupaten column from merge with proper checking
+        kabupaten_col = None
+        has_kabupaten = False
+        
+        if 'Kabupaten' in merged_data.columns:
+            kabupaten_col = 'Kabupaten'
+            has_kabupaten = True
+        elif 'Kabupaten_x' in merged_data.columns:
             kabupaten_col = 'Kabupaten_x'
+            has_kabupaten = True
         elif 'Kabupaten_y' in merged_data.columns:
             kabupaten_col = 'Kabupaten_y'
+            has_kabupaten = True
         
-        # Create clean kabupaten column
-        if kabupaten_col != 'Kabupaten':
-            merged_data['Kabupaten'] = merged_data[kabupaten_col]
+        # ✅ CRITICAL: If no Kabupaten column exists, create one using Province name
+        if not has_kabupaten:
+            logger.warning("No Kabupaten column found, using Province names as districts")
+            merged_data['Kabupaten'] = merged_data['Provinsi']
+            kabupaten_col = 'Kabupaten'
+            has_kabupaten = True
+        else:
+            # Create clean kabupaten column if using _x or _y suffix
+            if kabupaten_col != 'Kabupaten':
+                merged_data['Kabupaten'] = merged_data[kabupaten_col]
+        
+        # ✅ NOW SAFE: Debug Kabupaten data for Maluku
+        if len(maluku_after_merge) > 0 and has_kabupaten:
+            maluku_kabupaten_check = merged_data[merged_data['Provinsi'].str.contains('Maluku', case=False, na=False)]['Kabupaten'].isna().sum()
+            sample_maluku_kabupaten = merged_data[merged_data['Provinsi'].str.contains('Maluku', case=False, na=False)]['Kabupaten'].head().tolist()
+            logger.info(f"Maluku records with missing Kabupaten: {maluku_kabupaten_check}")
+            logger.info(f"Sample Maluku Kabupaten: {sample_maluku_kabupaten}")
         
         # Handle predicted score column
         predicted_col = 'Predicted_Komposit'
@@ -881,45 +1084,137 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
         
         merged_data['Risk_Numeric'] = merged_data['Risk_Level'].map(risk_mapping)
         
-        # ✅ NEW: Get regional mapping and create hierarchy
-        regions = get_provinces_by_region()
+        # Regional mapping function
+        def get_sulampua_region(provinsi):
+            """Map provinces to their specific Sulampua regions - case insensitive"""
+            provinsi_lower = provinsi.lower()
+            
+            # Sulawesi provinces
+            sulawesi_keywords = ['sulawesi', 'gorontalo']
+            if any(keyword in provinsi_lower for keyword in sulawesi_keywords):
+                return 'Sulawesi'
+            
+            # Maluku provinces - more flexible matching
+            maluku_keywords = ['maluku']
+            if any(keyword in provinsi_lower for keyword in maluku_keywords):
+                return 'Maluku'
+            
+            # Papua provinces - more flexible matching
+            papua_keywords = ['papua']
+            if any(keyword in provinsi_lower for keyword in papua_keywords):
+                return 'Papua'
+            
+            # If not found, keep it anyway but mark as unknown
+            logger.warning(f"Province '{provinsi}' not categorized in Sulampua regions")
+            return 'Other Regions'
         
-        # Add region information
-        province_to_region = {}
-        for region, provinces in regions.items():
-            for province in provinces:
-                province_to_region[province] = region
+        # Apply regional mapping
+        merged_data['Region'] = merged_data['Provinsi'].apply(get_sulampua_region)
         
-        merged_data['Region'] = merged_data['Provinsi'].map(province_to_region)
+        # DEBUG: Log regional mapping results
+        region_counts = merged_data['Region'].value_counts()
+        logger.info(f"Regional mapping results: {region_counts.to_dict()}")
         
-        # Filter only provinces with region mapping and clean kabupaten names
-        merged_data = merged_data.dropna(subset=['Region', 'Kabupaten'])
-        merged_data['Kabupaten'] = merged_data['Kabupaten'].astype(str).str.strip()
+        # Show provinces per region for debugging
+        for region in ['Sulawesi', 'Maluku', 'Papua']:
+            provinces_in_region = merged_data[merged_data['Region'] == region]['Provinsi'].unique()
+            logger.info(f"{region} provinces: {sorted(provinces_in_region)}")
         
-        if merged_data.empty:
+        # Include all Sulampua regions (don't filter out)
+        merged_data_sulampua = merged_data[merged_data['Region'].isin(['Sulawesi', 'Maluku', 'Papua'])].copy()
+        
+        # Data cleaning with impact tracking
+        before_cleaning = len(merged_data_sulampua)
+        maluku_before_cleaning = len(merged_data_sulampua[merged_data_sulampua['Region'] == 'Maluku'])
+        
+        # ✅ GRACEFUL: Handle missing Kabupaten more gracefully
+        # For missing Kabupaten, use Province name as fallback
+        merged_data_sulampua['Kabupaten'] = merged_data_sulampua['Kabupaten'].fillna(merged_data_sulampua['Provinsi'])
+        merged_data_sulampua['Kabupaten'] = merged_data_sulampua['Kabupaten'].astype(str).str.strip()
+        
+        # Only drop records with completely invalid data
+        merged_data_sulampua = merged_data_sulampua.dropna(subset=['Region', 'Predicted_Komposit', 'Risk_Level'])
+        
+        # Remove empty strings but keep everything else
+        merged_data_sulampua = merged_data_sulampua[merged_data_sulampua['Kabupaten'].str.len() > 0]
+        
+        after_cleaning = len(merged_data_sulampua)
+        maluku_after_cleaning = len(merged_data_sulampua[merged_data_sulampua['Region'] == 'Maluku'])
+        
+        # DEBUG: Report cleaning impact
+        logger.info(f"Data cleaning impact: {before_cleaning} -> {after_cleaning} records")
+        logger.info(f"Maluku impact: {maluku_before_cleaning} -> {maluku_after_cleaning} records")
+        
+        if merged_data_sulampua.empty:
+            logger.error("No Sulampua data found after filtering")
             return None
         
-        # ✅ NEW: Ensure unique districts per province (in case of duplicates)
-        merged_data = merged_data.drop_duplicates(subset=['Provinsi', 'Kabupaten'])
+        # DEBUG: Final data check
+        final_region_counts = merged_data_sulampua['Region'].value_counts()
+        logger.info(f"Final data by region: {final_region_counts.to_dict()}")
         
-        # ✅ NEW: Create hierarchical treemap with Region -> Province -> Kabupaten
+        # Show sample of each region
+        for region in ['Sulawesi', 'Maluku', 'Papua']:
+            region_data = merged_data_sulampua[merged_data_sulampua['Region'] == region]
+            if not region_data.empty:
+                sample_kabupaten = region_data['Kabupaten'].head(3).tolist()
+                logger.info(f"Sample {region} Kabupaten: {sample_kabupaten}")
+        
+        # Ensure unique districts per province (in case of duplicates)
+        merged_data_sulampua = merged_data_sulampua.drop_duplicates(subset=['Provinsi', 'Kabupaten'])
+        
+        # FINAL DEBUG: Check final data structure
+        final_final_counts = merged_data_sulampua['Region'].value_counts()
+        logger.info(f"FINAL treemap data by region: {final_final_counts.to_dict()}")
+        
+        # ✅ IMPORTANT: Check if we have enough hierarchy levels for treemap
+        unique_regions = merged_data_sulampua['Region'].nunique()
+        unique_provinces = merged_data_sulampua['Provinsi'].nunique() 
+        unique_kabupaten = merged_data_sulampua['Kabupaten'].nunique()
+        
+        logger.info(f"Hierarchy levels - Regions: {unique_regions}, Provinces: {unique_provinces}, Kabupaten: {unique_kabupaten}")
+        
+        # ✅ ADAPTIVE: Choose appropriate hierarchy based on data availability
+        if unique_kabupaten > unique_provinces:
+            # We have district-level data
+            path = ['Region', 'Provinsi', 'Kabupaten']
+            logger.info("Using 3-level hierarchy: Region -> Province -> District")
+        else:
+            # Only province-level data available
+            path = ['Region', 'Provinsi']
+            logger.info("Using 2-level hierarchy: Region -> Province")
+        
+        # Create hierarchical treemap
         fig = px.treemap(
-            merged_data,
-            path=['Region', 'Provinsi', 'Kabupaten'],   # ✅ 3-level hierarchy
-            values='Risk_Numeric',                       # Size based on risk
-            color='Predicted_Komposit',                  # Color based on food security score
-            color_continuous_scale='RdYlGn',             # ✅ Green = good, Red = bad
-            range_color=[1, 6],                          # Full score range
-            title=f'Food Security Risk Heatmap - {selected_scenario}<br><sub>🖱️ Click provinces to see districts | 🎯 Size = Risk Level | 🌈 Color = Food Security Score</sub>',
+            merged_data_sulampua,
+            path=path,                                  # ✅ Dynamic path based on data
+            values='Risk_Numeric',                      
+            color='Predicted_Komposit',                 
+            color_continuous_scale='RdYlGn',            
+            range_color=[1, 6],                         
+            title=f'Food Security Risk Heatmap - {selected_scenario}<br><sub>Regions: {", ".join(sorted(merged_data_sulampua["Region"].unique()))}</sub>',
             hover_data={
                 'Risk_Level': True, 
                 'Predicted_Komposit': ':.2f'
             },
             color_continuous_midpoint=3.5,
-            height=700  # ✅ Increased height for better hierarchy view
+            height=700
         )
         
-        # ✅ ENHANCED: Better layout and styling
+        # Update traces - clean display
+        fig.update_traces(
+            textinfo="label",          
+            textposition="middle center",
+            hovertemplate='<b>%{label}</b><br>' +
+                         'Food Security Score: %{color:.2f}<br>' +
+                         'Risk Level: %{customdata[0]}<br>' +
+                         '<extra></extra>',
+            marker=dict(
+                line=dict(width=2, color='white')
+            )
+        )
+        
+        # Clean layout
         fig.update_layout(
             font_size=10,
             title_font_size=16,
@@ -935,72 +1230,11 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
             )
         )
         
-        # ✅ NEW: Update treemap styling for better hierarchy visualization
-        fig.update_traces(
-            # Better text display
-            textinfo="label+value",
-            textposition="middle center",
-            # Custom hover template
-            hovertemplate='<b>%{label}</b><br>' +
-                         'Food Security Score: %{color:.2f}<br>' +
-                         'Risk Level: %{customdata[0]}<br>' +
-                         'Risk Value: %{value}<br>' +
-                         '<extra></extra>',
-            # Better borders
-            marker=dict(
-                line=dict(width=2, color='white'),
-                colorbar=dict(thickness=15)
-            )
-        )
-        
-        # ✅ NEW: Add interactive guide
-        fig.add_annotation(
-            x=0.02, y=0.98,
-            xref="paper", yref="paper",
-            text=(
-                "📊 <b>Interactive Guide:</b><br>"
-                "🖱️ <b>Click</b> on regions/provinces to drill down<br>"
-                "🎯 <b>Box Size:</b> Risk level (larger = higher risk)<br>"
-                "🌈 <b>Color:</b> Food security score<br>"
-                "🟢 Green = Good | 🟡 Yellow = Fair | 🔴 Red = Poor"
-            ),
-            showarrow=False,
-            font=dict(size=11, color="black"),
-            bgcolor="rgba(255,255,255,0.95)",
-            bordercolor="darkblue",
-            borderwidth=1,
-            borderpad=8
-        )
-        
-        # ✅ NEW: Add statistics summary
-        total_districts = len(merged_data)
-        total_provinces = merged_data['Provinsi'].nunique()
-        total_regions = merged_data['Region'].nunique()
-        high_risk_districts = len(merged_data[merged_data['Risk_Level'].isin(['Very High Risk', 'High Risk'])])
-        
-        fig.add_annotation(
-            x=0.98, y=0.02,
-            xref="paper", yref="paper",
-            text=(
-                f"📈 <b>Coverage Summary:</b><br>"
-                f"🏛️ Regions: {total_regions}<br>"
-                f"📍 Provinces: {total_provinces}<br>" 
-                f"🏘️ Districts: {total_districts}<br>"
-                f"🚨 High Risk: {high_risk_districts} ({high_risk_districts/total_districts*100:.1f}%)"
-            ),
-            showarrow=False,
-            font=dict(size=10, color="darkgreen"),
-            bgcolor="rgba(255,255,255,0.9)",
-            bordercolor="darkgreen",
-            borderwidth=1,
-            borderpad=6,
-            xanchor="right"
-        )
-        
         return fig
         
     except Exception as e:
         logger.error(f"Error creating hierarchical risk heatmap: {str(e)}")
+        import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return None
 
