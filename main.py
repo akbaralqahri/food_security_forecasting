@@ -1015,20 +1015,8 @@ def main():
     """Enhanced main dashboard function with Quick vs Advanced Forecasting"""
     initialize_session_state()
     
-    # Header with improved styling
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 2rem;">
-        <h1 class="main-header">
-            🌾 Food Security Forecasting Dashboard
-        </h1>
-        <p style="color: #ced4da; font-size: 1.1rem; margin: 0;">
-            Advanced Machine Learning for Policy Decision Support | Enhanced Version
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown("---")
-    
-    # Enhanced Sidebar
+    # In main.py, find the sidebar section and replace with this complete structure:
+    # Enhanced Sidebar - COMPLETE REPLACEMENT
     with st.sidebar:
         st.markdown("## 📊 Dashboard Controls")
         
@@ -1070,117 +1058,264 @@ def main():
                 except Exception as e:
                     handle_analysis_error(e, "file upload")
         else:
-            if st.button("🔄 Load Sample Data", use_container_width=True):
+            if st.button("📄 Load Sample Data", use_container_width=True):
                 try:
                     df = load_sample_data()
-                    st.session_state.uploaded_data = df
-                    st.session_state.analysis_complete = True  # Set to true for sample data
-                    st.success(f"✅ Sample data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
+                    if df is not None and not df.empty:
+                        st.session_state.uploaded_data = df
+                        st.session_state.analysis_complete = True  # Set to true for sample data
+                        st.success(f"✅ Sample data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
+                    else:
+                        st.error("❌ Failed to generate sample data")
                 except Exception as e:
                     handle_analysis_error(e, "sample data generation")
+                    st.session_state.uploaded_data = None
+
+        # ADD ANALYSIS CONTROLS SECTION HERE
+        st.markdown("---")
+        st.markdown("### ⚙️ Analysis Controls")
         
-        # Enhanced analysis controls - UPDATED VERSION
-        # Quick forecasting button with automatic best parameter search
-    if st.button("🚀 Run Quick Forecasting (Auto-Tune)", type="primary", use_container_width=True):
-        # ADD DATA VALIDATION BEFORE PROCESSING
-        if st.session_state.uploaded_data is None:
-            st.error("❌ Please upload data first or load sample data before running analysis.")
-        else:
-            try:
-                progress_container = st.container()
-                with progress_container:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    # Initialize config with quick parameter grid for tuning
-                    status_text.text("Initializing configuration with parameter search...")
-                    progress_bar.progress(10)
-                    
-                    config = FoodSecurityConfig()
-                    
-                    # Define quick parameter grid inline (no config.py changes needed)
-                    quick_param_grid = {
-                        'n_estimators': [300],
-                        'max_depth': [15],
-                        'min_samples_split': [2],
-                        'min_samples_leaf': [1],
-                        'max_features': ['sqrt'],
-                        'bootstrap': [True]
-                    }
-                    
-                    # Use the quick parameter grid
-                    config.PARAM_GRID = quick_param_grid.copy()
-                    
-                    # Calculate total combinations for user info
-                    total_combinations = 1
-                    for param, values in config.PARAM_GRID.items():
-                        total_combinations *= len(values)
-                    
-                    # Run analysis with progress updates
-                    status_text.text(f"🔍 Searching best parameters from {total_combinations} combinations...")
-                    progress_bar.progress(20)
-                    
-                    forecaster = FoodSecurityForecaster(config)
-                    
-                    status_text.text("🤖 Training models with different parameter sets...")
-                    progress_bar.progress(50)
-                    
-                    # This will now use GridSearchCV to find best params
-                    forecaster.run_full_analysis(st.session_state.uploaded_data)
-                    
-                    status_text.text("🎯 Selecting best model and generating predictions...")
-                    progress_bar.progress(80)
-                    
-                    status_text.text("📊 Finalizing results...")
-                    progress_bar.progress(100)
-                    
-                    st.session_state.forecaster = forecaster
-                    st.session_state.analysis_complete = True
-                    st.session_state.forecasting_method = "Quick Auto-Tune"
-                    
-                    # Store the best parameters found - WITH ERROR HANDLING
-                    best_params = {'n_estimators': 200, 'max_depth': 20}  # Default fallback
-                    
-                    if (hasattr(forecaster, 'model_trainer') and 
-                        forecaster.model_trainer and 
-                        hasattr(forecaster.model_trainer, 'best_model') and
-                        forecaster.model_trainer.best_model):
-                        try:
-                            best_params = forecaster.model_trainer.best_model.get_params()
-                        except Exception as e:
-                            logger.warning(f"Could not get model parameters: {e}")
-                    
-                    st.session_state.custom_settings = {
-                        'method': 'Auto-tuned',
-                        'n_estimators': best_params.get('n_estimators', 200),
-                        'max_depth': best_params.get('max_depth', 20),
-                        'min_samples_split': best_params.get('min_samples_split', 2),
-                        'min_samples_leaf': best_params.get('min_samples_leaf', 1),
-                        'max_features': best_params.get('max_features', 'sqrt'),
-                        'bootstrap': best_params.get('bootstrap', True),
-                        'total_combinations_tested': total_combinations
-                    }
-                    
-                    # Clear progress indicators
-                    progress_bar.empty()
-                    status_text.empty()
-                    
-                    # Show found best parameters
-                    progress_container.success(
-                        f"✅ Auto-tuning completed! Best parameters found:\n"
-                        f"🌳 Trees: {best_params.get('n_estimators', 200)}, "
-                        f"📢 Depth: {best_params.get('max_depth', 20)}, "
-                        f"🍃 Min Split: {best_params.get('min_samples_split', 2)}, "
-                        f"🌿 Min Leaf: {best_params.get('min_samples_leaf', 1)}"
-                    )
-                    
-                    st.rerun()
-                    
-            except Exception as e:
-                handle_analysis_error(e, "quick auto-tuning forecasting")
+        # Analysis method selection
+        analysis_method = st.radio(
+            "Choose Analysis Method:",
+            ["🚀 Quick Auto-Tuning", "🔬 Advanced Parameters"],
+            help="Quick: Automatic parameter search | Advanced: Manual parameter control"
+        )
         
+        if analysis_method == "🚀 Quick Auto-Tuning":
+            st.info("Automatically finds best parameters through grid search")
+            
+            # Quick forecasting button - IN SIDEBAR
+            if st.button("🚀 Run Quick Forecasting (Auto-Tune)", type="primary", use_container_width=True):
+                # Validate data first
+                if st.session_state.uploaded_data is None:
+                    st.error("❌ Please upload data first or load sample data before running analysis.")
+                else:
+                    try:
+                        progress_container = st.container()
+                        with progress_container:
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            # Initialize config with quick parameter grid for tuning
+                            status_text.text("Initializing configuration with parameter search...")
+                            progress_bar.progress(10)
+                            
+                            config = FoodSecurityConfig()
+                            
+                            # Define quick parameter grid inline
+                            quick_param_grid = {
+                                'n_estimators': [300],
+                                'max_depth': [15],
+                                'min_samples_split': [2],
+                                'min_samples_leaf': [1],
+                                'max_features': ['sqrt'],
+                                'bootstrap': [True]
+                            }
+                            
+                            # Use the quick parameter grid
+                            config.PARAM_GRID = quick_param_grid.copy()
+                            
+                            # Calculate total combinations for user info
+                            total_combinations = 1
+                            for param, values in config.PARAM_GRID.items():
+                                total_combinations *= len(values)
+                            
+                            # Run analysis with progress updates
+                            status_text.text(f"🔍 Searching best parameters from {total_combinations} combinations...")
+                            progress_bar.progress(20)
+                            
+                            forecaster = FoodSecurityForecaster(config)
+                            
+                            status_text.text("🤖 Training models with different parameter sets...")
+                            progress_bar.progress(50)
+                            
+                            # This will now use GridSearchCV to find best params
+                            forecaster.run_full_analysis(st.session_state.uploaded_data)
+                            
+                            status_text.text("🎯 Selecting best model and generating predictions...")
+                            progress_bar.progress(80)
+                            
+                            status_text.text("📊 Finalizing results...")
+                            progress_bar.progress(100)
+                            
+                            st.session_state.forecaster = forecaster
+                            st.session_state.analysis_complete = True
+                            st.session_state.forecasting_method = "Quick Auto-Tune"
+                            
+                            # Store the best parameters found
+                            best_params = {'n_estimators': 200, 'max_depth': 20}  # Default fallback
+                            
+                            if (hasattr(forecaster, 'model_trainer') and 
+                                forecaster.model_trainer and 
+                                hasattr(forecaster.model_trainer, 'best_model') and
+                                forecaster.model_trainer.best_model):
+                                try:
+                                    best_params = forecaster.model_trainer.best_model.get_params()
+                                except Exception as e:
+                                    logger.warning(f"Could not get model parameters: {e}")
+                            
+                            st.session_state.custom_settings = {
+                                'method': 'Auto-tuned',
+                                'n_estimators': best_params.get('n_estimators', 200),
+                                'max_depth': best_params.get('max_depth', 20),
+                                'min_samples_split': best_params.get('min_samples_split', 2),
+                                'min_samples_leaf': best_params.get('min_samples_leaf', 1),
+                                'max_features': best_params.get('max_features', 'sqrt'),
+                                'bootstrap': best_params.get('bootstrap', True),
+                                'total_combinations_tested': total_combinations
+                            }
+                            
+                            # Clear progress indicators
+                            progress_bar.empty()
+                            status_text.empty()
+                            
+                            # Show found best parameters
+                            progress_container.success(
+                                f"✅ Auto-tuning completed! Best parameters found:\n"
+                                f"🌳 Trees: {best_params.get('n_estimators', 200)}, "
+                                f"📢 Depth: {best_params.get('max_depth', 20)}, "
+                                f"🍃 Min Split: {best_params.get('min_samples_split', 2)}, "
+                                f"🌿 Min Leaf: {best_params.get('min_samples_leaf', 1)}"
+                            )
+                            
+                            st.rerun()
+                            
+                    except Exception as e:
+                        handle_analysis_error(e, "quick auto-tuning forecasting")
+                        
+        else:  # Advanced Parameters
+            st.markdown("#### 🔬 Advanced Model Configuration")
+            
+            # Manual parameter controls
+            st.markdown("**🌳 Random Forest Parameters:**")
+            
+            n_estimators = st.select_slider(
+                "Number of Trees:",
+                options=[100, 200, 300, 400, 500],
+                value=200,
+                help="More trees = better performance but slower training"
+            )
+            
+            max_depth = st.select_slider(
+                "Maximum Tree Depth:",
+                options=[10, 15, 20, 25, 30, 35],
+                value=20,
+                help="Deeper trees can overfit. 15-25 usually works well."
+            )
+            
+            min_samples_split = st.select_slider(
+                "Minimum Samples to Split:",
+                options=[2, 5, 10, 15, 20],
+                value=2,
+                help="Higher values prevent overfitting"
+            )
+            
+            min_samples_leaf = st.select_slider(
+                "Minimum Samples per Leaf:",
+                options=[1, 2, 4, 8, 16],
+                value=1,
+                help="Higher values create simpler trees"
+            )
+            
+            max_features = st.selectbox(
+                "Max Features per Split:",
+                options=["sqrt", "log2", "all"],
+                index=0,
+                help="sqrt usually works best for regression"
+            )
+            
+            # Performance impact indicator
+            complexity_score = (n_estimators/100) * (max_depth/10) * (1/(min_samples_split+1)) * (1/(min_samples_leaf+1))
+            if complexity_score > 15:
+                st.warning("⚠️ High complexity - may overfit and train slowly")
+            elif complexity_score > 8:
+                st.info("ℹ️ Medium complexity - good balance")
+            else:
+                st.success("✅ Lower complexity - fast training")
+                
+            # Cross-validation settings
+            st.markdown("**📊 Validation Settings:**")
+            
+            cv_folds = st.slider(
+                "Cross-Validation Folds:",
+                min_value=3,
+                max_value=10,
+                value=5,
+                help="More folds = more reliable but slower"
+            )
+            
+            bootstrap = st.checkbox(
+                "Enable Bootstrap Sampling",
+                value=True,
+                help="Usually improves performance"
+            )
+            
+            # Advanced forecasting button - IN SIDEBAR
+            if st.button("🔬 Run Advanced Forecasting", type="primary", use_container_width=True):
+                # Validate data first
+                if st.session_state.uploaded_data is None:
+                    st.error("❌ Please upload data first or load sample data before running analysis.")
+                else:
+                    try:
+                        progress_container = st.container()
+                        with progress_container:
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            status_text.text("🔧 Configuring custom parameters...")
+                            progress_bar.progress(10)
+                            
+                            # Create custom configuration
+                            config = FoodSecurityConfig()
+                            config.PARAM_GRID = {
+                                'n_estimators': [n_estimators],
+                                'max_depth': [max_depth],
+                                'min_samples_split': [min_samples_split],
+                                'min_samples_leaf': [min_samples_leaf],
+                                'max_features': [max_features],
+                                'bootstrap': [bootstrap]
+                            }
+                            
+                            status_text.text("🚀 Training model with custom settings...")
+                            progress_bar.progress(50)
+                            
+                            forecaster = FoodSecurityForecaster(config)
+                            forecaster.run_full_analysis(st.session_state.uploaded_data)
+                            
+                            status_text.text("📊 Generating predictions and analysis...")
+                            progress_bar.progress(90)
+                            
+                            st.session_state.forecaster = forecaster
+                            st.session_state.analysis_complete = True
+                            st.session_state.forecasting_method = "Advanced"
+                            st.session_state.custom_settings = {
+                                'method': 'Advanced',
+                                'n_estimators': n_estimators,
+                                'max_depth': max_depth,
+                                'min_samples_split': min_samples_split,
+                                'min_samples_leaf': min_samples_leaf,
+                                'max_features': max_features,
+                                'bootstrap': bootstrap,
+                                'cv_folds': cv_folds,
+                                'random_state': config.RANDOM_STATE
+                            }
+                            
+                            progress_bar.progress(100)
+                            status_text.text("✅ Analysis completed!")
+                            
+                            # Clear progress indicators after brief delay
+                            progress_bar.empty()
+                            status_text.empty()
+                            
+                            st.success(f"✅ Advanced analysis completed with custom parameters!")
+                            st.rerun()
+                            
+                    except Exception as e:
+                        handle_analysis_error(e, "advanced forecasting")
+
         # Enhanced information section
-        # Enhanced information section
+        st.markdown("---")
         st.markdown("### ℹ️ Dashboard Information")
 
         # Display forecasting method used if analysis is complete
@@ -1268,15 +1403,6 @@ def main():
                 if st.button("Clear Error Log"):
                     st.session_state.error_messages = []
                     st.rerun()
-    
-    # Main content area with improved error handling
-    try:
-        if st.session_state.uploaded_data is None:
-            show_welcome_screen()
-        else:
-            show_dashboard_content()
-    except Exception as e:
-        handle_analysis_error(e, "main content rendering")
 
 
 # TAMBAHAN: Update session state initialization function
