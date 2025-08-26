@@ -1,23 +1,26 @@
-# Minimal requirements.txt - Force pre-compiled wheels only
---only-binary=all
+# Core Data Science Libraries
+pandas>=1.5.0
+numpy>=1.21.0
+scikit-learn>=1.1.0
 
-# Core
-streamlit>=1.28.0
+# Streamlit and Web Framework
+streamlit>=1.25.0
 
-# Data Science - Use versions that have pre-compiled wheels for Python 3.13
-pandas>=2.1.0
-numpy>=1.24.0
-matplotlib>=3.6.0
-plotly>=5.15.0
-seaborn>=0.12.0
+# Visualization Libraries
+plotly>=5.10.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
 
-# Machine Learning - Skip scipy-dependent packages for now
-# scikit-learn  # Commented out temporarily
+# Geographic Visualization
+folium>=0.14.0
 
-# Configuration 
-pyyaml>=6.0.1
-openpyxl>=3.1.0
+# Machine Learning Explainability (Optional)
+shap>=0.41.0
 
-# Utils
+# Configuration and File Handling
+pyyaml>=6.0
+openpyxl>=3.0.0
+
+# Additional Utilities
 python-dateutil>=2.8.0
-rich>=13.0.0
+requests>=2.25.0
