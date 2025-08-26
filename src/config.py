@@ -97,20 +97,29 @@ class FoodSecurityConfig:
     # Model hyperparameter grid
     PARAM_GRID = {
         'n_estimators': [100, 200, 300],
-        'max_depth': [None, 10, 20, 30],
+        'max_depth': [10, 20, 30],
         'min_samples_split': [2, 5, 10],
         'min_samples_leaf': [1, 2, 4],
-        'max_features': ['sqrt', 'log2', None],
+        'max_features': ['sqrt'],
         'bootstrap': [True, False]
     }
     
     # Fast parameter grid for development/testing
-    PARAM_GRID_FAST = {
-        'n_estimators': [100, 200],
-        'max_depth': [None, 20],
+    PARAM_GRID_QUICK = {
+        'n_estimators': [100, 200, 300],
+        'max_depth': [15, 20, 25, 30],
         'min_samples_split': [2, 5],
         'min_samples_leaf': [1, 2],
-        'max_features': ['sqrt', 'log2'],
+        'max_features': ['sqrt'],
+        'bootstrap': [True]
+    }
+
+    PARAM_GRID_FAST = {
+        'n_estimators': [100, 200],
+        'max_depth': [20, 30],  # ✅ REMOVED None
+        'min_samples_split': [2, 5],
+        'min_samples_leaf': [1, 2],
+        'max_features': ['sqrt'],  # ✅ REMOVED None
         'bootstrap': [True]
     }
     

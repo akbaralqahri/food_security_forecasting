@@ -1,25 +1,40 @@
-# Safe installation requirements
-# Install these one by one if needed
-
-# Essential packages first
+# Core Python packages - Updated for Python 3.13 compatibility
 pip>=23.0
-setuptools>=65.0
+setuptools>=68.0.0
 wheel>=0.37.0
 
-# Core data science (most stable versions)
-pandas==1.5.3
-numpy==1.24.3
+# Data Science Core - Updated versions
+pandas>=2.0.0,<2.3.0
+numpy>=1.24.0,<2.0.0
+scipy>=1.10.0
 
-# Machine learning
-scikit-learn==1.2.2
+# Machine Learning
+scikit-learn>=1.3.0,<1.5.0
+
+# Web Framework
+streamlit>=1.28.0,<1.40.0
 
 # Visualization
-matplotlib==3.7.1
-plotly==5.14.1
+plotly>=5.15.0
+matplotlib>=3.6.0
+seaborn>=0.12.0
 
-# Streamlit
-streamlit==1.28.1
+# Configuration and Data Handling - Updated PyYAML
+pyyaml>=6.0.1
+openpyxl>=3.1.0
 
-# Additional utilities
-pyyaml==6.0
-openpyxl==3.1.2
+# Optional: Advanced ML (only if used in your code)
+# shap>=0.42.0  # Uncomment if you use SHAP
+
+# Utilities
+python-dateutil>=2.8.0
+pytz>=2022.1
+
+# Optional: Geographic visualization (only if geo features are used)
+# folium>=0.14.0  # Uncomment if you use Folium maps
+
+# For better error handling and logging
+rich>=13.0.0
+
+# Optional: If you use any additional data connectors
+# requests>=2.28.0  # Uncomment if you fetch external data

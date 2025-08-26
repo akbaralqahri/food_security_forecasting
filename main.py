@@ -985,75 +985,111 @@ def main():
                 except Exception as e:
                     handle_analysis_error(e, "sample data generation")
         
-        # Enhanced analysis controls - REVISI UTAMA
+        # Enhanced analysis controls - UPDATED VERSION
         if st.session_state.uploaded_data is not None:
             st.markdown("### 🔧 Analysis Settings")
             
-            # Quick Forecasting - Default tombol utama
+            # Quick Forecasting - UPDATED with automatic parameter search
             st.markdown("#### 🚀 Quick Start")
             
-            # Quick forecasting button with default settings
-            if st.button("🚀 Run Quick Forecasting", type="primary", use_container_width=True):
+            # ✅ UPDATED: Quick forecasting button with automatic best parameter search
+            # Replace the Quick Forecasting button section in main.py
+
+            # Quick forecasting button with automatic best parameter search
+            if st.button("🚀 Run Quick Forecasting (Auto-Tune)", type="primary", use_container_width=True):
                 try:
                     progress_container = st.container()
                     with progress_container:
                         progress_bar = st.progress(0)
                         status_text = st.empty()
                         
-                        # Initialize config with default values
-                        status_text.text("Initializing configuration...")
+                        # Initialize config with quick parameter grid for tuning
+                        status_text.text("Initializing configuration with parameter search...")
                         progress_bar.progress(10)
                         
                         config = FoodSecurityConfig()
-                        # Default settings yang optimal
-                        config.PARAM_GRID['n_estimators'] = [100]  # Default: 100 trees
-                        config.PARAM_GRID['max_depth'] = [20]      # Default: 20 levels
-                        config.PARAM_GRID['random_state'] = [42]   # Default: reproducible
-                        # CV folds default: 4 (akan di-handle di forecaster)
+                        
+                        # Define quick parameter grid inline (no config.py changes needed)
+                        quick_param_grid = {
+                            'n_estimators': [100, 200, 300],
+                            'max_depth': [15, 20, 25, 30],
+                            'min_samples_split': [2, 5],
+                            'min_samples_leaf': [1, 2],
+                            'max_features': ['sqrt', 'log2'],
+                            'bootstrap': [True]
+                        }
+                        
+                        # Use the quick parameter grid
+                        config.PARAM_GRID = quick_param_grid.copy()
+                        
+                        # Calculate total combinations for user info
+                        total_combinations = 1
+                        for param, values in config.PARAM_GRID.items():
+                            total_combinations *= len(values)
                         
                         # Run analysis with progress updates
-                        status_text.text("Training machine learning model...")
-                        progress_bar.progress(30)
+                        status_text.text(f"🔍 Searching best parameters from {total_combinations} combinations...")
+                        progress_bar.progress(20)
                         
                         forecaster = FoodSecurityForecaster(config)
                         
-                        status_text.text("Running cross-validation (4 folds)...")
-                        progress_bar.progress(60)
+                        status_text.text("🤖 Training models with different parameter sets...")
+                        progress_bar.progress(50)
                         
+                        # This will now use GridSearchCV to find best params
                         forecaster.run_full_analysis(st.session_state.uploaded_data)
                         
-                        status_text.text("Generating predictions...")
+                        status_text.text("🎯 Selecting best model and generating predictions...")
                         progress_bar.progress(80)
                         
-                        status_text.text("Finalizing results...")
+                        status_text.text("📊 Finalizing results...")
                         progress_bar.progress(100)
                         
                         st.session_state.forecaster = forecaster
                         st.session_state.analysis_complete = True
-                        st.session_state.forecasting_method = "Quick"
+                        st.session_state.forecasting_method = "Quick Auto-Tune"
+                        
+                        # Store the best parameters found
+                        best_params = forecaster.model_trainer.best_model.get_params()
                         st.session_state.custom_settings = {
-                            'n_estimators': 100,
-                            'max_depth': 20,
-                            'cv_folds': 4,
-                            'random_state': 42
+                            'method': 'Auto-tuned',
+                            'n_estimators': best_params.get('n_estimators', 'N/A'),
+                            'max_depth': best_params.get('max_depth', 'N/A'),
+                            'min_samples_split': best_params.get('min_samples_split', 'N/A'),
+                            'min_samples_leaf': best_params.get('min_samples_leaf', 'N/A'),
+                            'max_features': best_params.get('max_features', 'N/A'),
+                            'bootstrap': best_params.get('bootstrap', 'N/A'),
+                            'total_combinations_tested': total_combinations
                         }
                         
                         # Clear progress indicators
                         progress_bar.empty()
                         status_text.empty()
-                        progress_container.success("✅ Quick analysis completed successfully!")
+                        
+                        # Show found best parameters
+                        progress_container.success(
+                            f"✅ Auto-tuning completed! Best parameters found:\n"
+                            f"🌳 Trees: {best_params.get('n_estimators')}, "
+                            f"🔢 Depth: {best_params.get('max_depth')}, "
+                            f"🍃 Min Split: {best_params.get('min_samples_split')}, "
+                            f"🌿 Min Leaf: {best_params.get('min_samples_leaf')}"
+                        )
                         
                         st.rerun()
                         
                 except Exception as e:
-                    handle_analysis_error(e, "quick forecasting")
+                    handle_analysis_error(e, "quick auto-tuning forecasting")
             
-            # Informasi tentang Quick Forecasting
-            st.info("🎯 **Quick Forecasting** uses optimized default settings (100 trees, depth 20, 4-fold CV) for fast and reliable results.")
+            # ✅ UPDATED: Information about Quick Auto-Tuning
+            st.info(
+                "🎯 **Quick Auto-Tuning** automatically searches through different parameter "
+                "combinations to find the best model configuration for your data. This ensures "
+                "optimal accuracy while remaining faster than full advanced tuning."
+            )
             
             st.markdown("---")
             
-            # Advanced Forecasting - Expandable section
+            # Advanced Forecasting - Update max_depth options to remove None
             with st.expander("⚙️ Advanced Forecasting Settings", expanded=False):
                 st.markdown("#### 🔧 Custom Model Configuration")
                 st.markdown("*Adjust these parameters for specialized analysis needs*")
@@ -1067,10 +1103,11 @@ def main():
                         50, 500, 100, 25,  # Default: 100
                         help="More trees = better accuracy but slower training"
                     )
+                    # ✅ UPDATED: Remove None option from max_depth
                     max_depth = st.selectbox(
                         "Max Tree Depth", 
-                        [None, 5, 10, 15, 20, 30], 
-                        index=4,  # Default: 20 (index 4)
+                        [10, 15, 20, 25, 30, 35], 
+                        index=2,  # Default: 20 (index 2)
                         help="Limits tree depth to prevent overfitting"
                     )
                 
@@ -1090,12 +1127,12 @@ def main():
                         help="For reproducible results"
                     )
                 
-                # Performance impact indicator
+                # Performance impact indicator - UPDATED calculations
                 st.markdown("##### 📊 Expected Performance Impact")
                 
                 # Calculate relative impact
                 baseline_time = 1.0
-                current_time = (n_estimators / 100) * (1.5 if max_depth is None else max_depth / 20) * (cv_folds / 4)
+                current_time = (n_estimators / 100) * (max_depth / 20) * (cv_folds / 4)
                 
                 impact_cols = st.columns(3)
                 
@@ -1116,18 +1153,19 @@ def main():
                     st.markdown(f"**Accuracy:** <span style='color: {accuracy_color}'>{accuracy_impact}</span>", unsafe_allow_html=True)
                 
                 with impact_cols[2]:
-                    if max_depth is None or max_depth > 25:
-                        overfitting_risk = "High overfitting risk"
+                    # ✅ UPDATED: Since None is removed, adjust overfitting risk assessment
+                    if max_depth > 30:
+                        overfitting_risk = "Higher overfitting risk"
                         risk_color = "#dc3545"
-                    elif max_depth > 15:
+                    elif max_depth > 20:
                         overfitting_risk = "Moderate risk"
                         risk_color = "#ffc107"
                     else:
-                        overfitting_risk = "Low overfitting risk"
+                        overfitting_risk = "Lower overfitting risk"
                         risk_color = "#28a745"
                     st.markdown(f"**Overfitting:** <span style='color: {risk_color}'>{overfitting_risk}</span>", unsafe_allow_html=True)
                 
-                # Recommendation system
+                # Recommendation system - UPDATED
                 st.markdown("##### 💡 Recommendations")
                 
                 recommendations = []
@@ -1138,8 +1176,8 @@ def main():
                 if n_estimators < 100:
                     recommendations.append("📈 **Low tree count** - Increase to 100+ for better stability")
                 
-                if max_depth is None:
-                    recommendations.append("🎯 **Unlimited depth** - Consider limiting to 15-25 to prevent overfitting")
+                if max_depth > 30:
+                    recommendations.append("🎯 **High depth** - Consider limiting to 25-30 to prevent overfitting")
                 
                 if cv_folds > 7:
                     recommendations.append("⏱️ **High CV folds** - Diminishing returns beyond 5-7 folds")
@@ -1150,7 +1188,7 @@ def main():
                 for rec in recommendations:
                     st.markdown(f"- {rec}")
                 
-                # Advanced forecasting button
+                # Advanced forecasting button - UPDATED to use max_depth without None
                 st.markdown("---")
                 if st.button("🔬 Run Advanced Forecasting", type="secondary", use_container_width=True):
                     try:
@@ -1165,8 +1203,7 @@ def main():
                             
                             config = FoodSecurityConfig()
                             config.PARAM_GRID['n_estimators'] = [n_estimators]
-                            if max_depth is not None:
-                                config.PARAM_GRID['max_depth'] = [max_depth]
+                            config.PARAM_GRID['max_depth'] = [max_depth]  # No None option
                             config.PARAM_GRID['random_state'] = [random_state]
                             
                             # Run analysis with progress updates
@@ -1208,13 +1245,13 @@ def main():
                     except Exception as e:
                         handle_analysis_error(e, "advanced forecasting")
                 
-                # Comparison with quick forecasting
-                st.markdown("##### ⚖️ Quick vs Advanced Comparison")
+                # ✅ UPDATED: Comparison with quick auto-tuning
+                st.markdown("##### ⚖️ Quick Auto-Tune vs Advanced Comparison")
                 
                 comparison_data = {
-                    "Setting": ["Number of Trees", "Max Depth", "CV Folds", "Est. Time", "Complexity"],
-                    "Quick Forecasting": ["100", "20", "4", "1x (baseline)", "Simple"],
-                    "Your Advanced": [str(n_estimators), str(max_depth), str(cv_folds), f"{current_time:.1f}x", "Custom"]
+                    "Setting": ["Method", "Number of Trees", "Max Depth", "CV Folds", "Complexity"],
+                    "Quick Auto-Tune": ["Auto-search best", "100-300", "15-30", "4", "Automatic"],
+                    "Your Advanced": ["Manual", str(n_estimators), str(max_depth), str(cv_folds), "Custom"]
                 }
                 
                 comparison_df = pd.DataFrame(comparison_data)
@@ -1225,7 +1262,7 @@ def main():
         
         # Tampilkan metode forecasting yang digunakan jika sudah ada analysis
         if st.session_state.analysis_complete and hasattr(st.session_state, 'forecasting_method'):
-            method = getattr(st.session_state, 'forecasting_method', 'Quick')
+            method = getattr(st.session_state, 'forecasting_method', 'Quick Auto-Tune')
             if method == "Advanced" and hasattr(st.session_state, 'custom_settings'):
                 settings = st.session_state.custom_settings
                 with st.expander("🔬 Current Analysis Settings", expanded=False):
@@ -1238,44 +1275,65 @@ def main():
                     - **CV Folds:** {settings['cv_folds']}
                     - **Random Seed:** {settings['random_state']}
                     """)
+            elif method == "Quick Auto-Tune" and hasattr(st.session_state, 'custom_settings'):
+                settings = st.session_state.custom_settings
+                with st.expander("🚀 Current Analysis Settings", expanded=False):
+                    st.markdown(f"""
+                    **Method:** {method} (Automatic Parameter Search)
+                    
+                    **Best Parameters Found:**
+                    - **Trees:** {settings['n_estimators']}
+                    - **Max Depth:** {settings['max_depth']}
+                    - **Min Split:** {settings['min_samples_split']}
+                    - **Min Leaf:** {settings['min_samples_leaf']}
+                    - **Max Features:** {settings['max_features']}
+                    - **Bootstrap:** {settings['bootstrap']}
+                    
+                    **Search Info:**
+                    - **Total Combinations Tested:** {settings.get('total_combinations_tested', 'N/A')}
+                    """)
             else:
                 with st.expander("🚀 Current Analysis Settings", expanded=False):
                     st.markdown(f"""
-                    **Method:** Quick Forecasting (Default)
+                    **Method:** Quick Auto-Tuning (Default)
                     
-                    **Model Configuration:**
-                    - **Trees:** 100 (optimal default)
-                    - **Max Depth:** 20 (balanced)
+                    **Automatic Parameter Search:**
+                    - **Trees:** 100-300 (auto-selected)
+                    - **Max Depth:** 15-30 (auto-selected)
+                    - **Min Split:** 2-5 (auto-selected)
+                    - **Min Leaf:** 1-2 (auto-selected)
                     - **CV Folds:** 4 (efficient)
-                    - **Random Seed:** 42 (standard)
+                    - **Bootstrap:** True (standard)
                     """)
         
         with st.expander("📋 Features & Capabilities"):
             st.markdown("""
-            **🚀 Quick Forecasting:**
-            - One-click analysis with optimal defaults
-            - Fast results (100 trees, depth 20, 4-fold CV)
+            **🚀 Quick Auto-Tuning:** ✅ **UPDATED**
+            - Automatic parameter search for best accuracy
+            - Tests multiple combinations of hyperparameters
+            - Finds optimal model configuration automatically  
+            - Faster than full advanced tuning
             - Perfect for most use cases
-            - Recommended for beginners
             
             **🔬 Advanced Forecasting:**
-            - Full parameter customization
+            - Full manual parameter control
             - Performance impact indicators
             - Smart recommendations
             - For power users and research
+            - Max depth options: 10, 15, 20, 25, 30, 35
             
             **🤖 ML Capabilities:**
-            - Random Forest modeling
-            - Time series validation
+            - Random Forest with auto-tuning
+            - Time series cross-validation
             - Feature importance analysis
             - Scenario forecasting
-            - Risk assessment
+            - Risk assessment with uncertainty
             
             **📊 Visualization:**
-            - Interactive charts
-            - Geographic mapping
-            - Trend analysis
-            - Performance metrics
+            - Interactive charts and maps
+            - Geographic risk analysis
+            - Trend analysis and comparisons
+            - Performance metrics dashboard
             """)
         
         # Debug information (for development)
@@ -1478,17 +1536,24 @@ def show_enhanced_data_overview(df):
             st.success("✅ No missing data detected!")
     
     with col2:
-        # Data distribution summary
+        # Data distribution summary - UPDATED: Exclude Tahun dan Komposit
         numeric_cols = df.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols) > 0:
+        
+        # Filter out 'Tahun' dan 'Komposit' dari visualisasi
+        excluded_cols = ['Tahun', 'Komposit']
+        filtered_cols = [col for col in numeric_cols if col not in excluded_cols]
+        
+        if len(filtered_cols) > 0:
             fig_dist = px.box(
-                df[numeric_cols].melt(),
+                df[filtered_cols].melt(),
                 x='variable', y='value',
-                title="Data Distribution Overview"
+                title="Predictor Variables Distribution Overview"
             )
             fig_dist.update_xaxes(tickangle=45)
             fig_dist.update_layout(height=400)
             st.plotly_chart(fig_dist, use_container_width=True)
+        else:
+            st.info("No predictor variables available for distribution analysis")
     
     # Enhanced visualizations
     if 'Komposit' in df.columns:
@@ -3049,6 +3114,7 @@ def generate_comprehensive_report(summary, forecaster):
     
     # Join all lines into a single string
     return "\n".join(report_lines)
+
 
 
 # Run the main application
