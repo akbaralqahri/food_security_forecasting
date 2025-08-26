@@ -1096,11 +1096,11 @@ def main():
                     
                     # Define quick parameter grid inline (no config.py changes needed)
                     quick_param_grid = {
-                        'n_estimators': [100, 200, 300],
-                        'max_depth': [15, 20, 25, 30],
-                        'min_samples_split': [2, 5],
-                        'min_samples_leaf': [1, 2],
-                        'max_features': ['sqrt', 'log2'],
+                        'n_estimators': [300],
+                        'max_depth': [15],
+                        'min_samples_split': [2],
+                        'min_samples_leaf': [1],
+                        'max_features': ['sqrt'],
                         'bootstrap': [True]
                     }
                     
