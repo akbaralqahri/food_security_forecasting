@@ -1404,6 +1404,15 @@ def main():
                     st.session_state.error_messages = []
                     st.rerun()
 
+    # Main content area with improved error handling
+    try:
+        if st.session_state.uploaded_data is None:
+            show_welcome_screen()
+        else:
+            show_dashboard_content()
+    except Exception as e:
+        handle_analysis_error(e, "main content rendering")
+
 
 # TAMBAHAN: Update session state initialization function
 def initialize_session_state():
