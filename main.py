@@ -1081,7 +1081,11 @@ def main():
         
         # Enhanced analysis controls - UPDATED VERSION
         # Quick forecasting button with automatic best parameter search
-        if st.button("🚀 Run Quick Forecasting (Auto-Tune)", type="primary", use_container_width=True):
+    if st.button("🚀 Run Quick Forecasting (Auto-Tune)", type="primary", use_container_width=True):
+        # ADD DATA VALIDATION BEFORE PROCESSING
+        if st.session_state.uploaded_data is None:
+            st.error("❌ Please upload data first or load sample data before running analysis.")
+        else:
             try:
                 progress_container = st.container()
                 with progress_container:
@@ -1522,7 +1526,7 @@ def show_enhanced_data_overview(df):
         filtered_df = filtered_df[filtered_df['Tahun'] == search_year]
     
     st.dataframe(
-        filtered_df.head(50), 
+        filtered_df.head(1000), 
         use_container_width=True,
         height=400
     )
@@ -2122,8 +2126,8 @@ def show_enhanced_risk_assessment():
         st.markdown(create_enhanced_status_card(
             "🚨 CRITICAL ALERT - National Food Security Emergency",
             f"""
-            <p><strong>{high_risk_count}</strong> provinces ({(high_risk_count/total_provinces*100):.1f}%) are at high or very high risk</p>
-            <p><strong>Threshold Exceeded:</strong> More than 20% of provinces require urgent intervention</p>
+            <p><strong>{high_risk_count}</strong> cities ({(high_risk_count/total_provinces*100):.1f}%) are at high or very high risk</p>
+            <p><strong>Threshold Exceeded:</strong> More than 20% of cities require urgent intervention</p>
             <p><strong>Immediate Actions Required:</strong></p>
             <ul>
                 <li>Activate emergency food distribution systems</li>

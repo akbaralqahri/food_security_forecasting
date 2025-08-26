@@ -334,8 +334,10 @@ def create_choropleth_map_plotly(scenario_data, risk_data, selected_scenario='St
             mapbox_style="open-street-map",
             margin=dict(r=0, t=50, l=0, b=0),
             coloraxis_colorbar=dict(
-                title="Food Security Score",
-                titleside="right"
+                title=dict(
+                    text="Food Security Score",
+                    side="right"
+                )
             )
         )
         
@@ -480,8 +482,10 @@ def create_risk_distribution_map(scenario_data, risk_data):
             mapbox_style="open-street-map",
             margin=dict(r=0, t=100, l=0, b=0),
             coloraxis_colorbar=dict(
-                title="Food Security Score",
-                titleside="right",
+                title=dict(
+                    text="Food Security Score",
+                    side="right"
+                ),
                 tickmode='array',
                 tickvals=[1, 2, 3, 4, 5, 6],
                 ticktext=[
@@ -1124,8 +1128,10 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
             title_font_size=16,
             margin=dict(t=80, l=10, r=10, b=10),
             coloraxis_colorbar=dict(
-                title="Food Security Score",
-                titleside="right",
+                title=dict(
+                    text="Food Security Score",
+                    side="right"
+                ),
                 tickmode='array',
                 tickvals=[1, 2, 3, 4, 5, 6],
                 ticktext=['1 (Very Poor)', '2 (Poor)', '3 (Fair)', '4 (Good)', '5 (Very Good)', '6 (Excellent)'],
