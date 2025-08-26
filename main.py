@@ -565,9 +565,12 @@ st.markdown("""
     /* Fix text color in risk cards */
     .risk-card h2,
     .risk-card h3,
+    .risk-card h4,
     .risk-card p,
-    .risk-card strong {
-        color: #212529 !important;
+    .risk-card strong,
+    .risk-card span {
+        color: #000000 !important;
+        text-shadow: none !important;
     }
     
     /* Loading spinner */
@@ -871,7 +874,7 @@ def create_enhanced_status_card(title, content, card_type="info", icon="ℹ️")
 
 
 def create_risk_level_card(risk_level, count, percentage, action, icon, card_type):
-    """Create specialized risk level cards"""
+    """Create specialized risk level cards with black text"""
     risk_card_classes = {
         "Very High Risk": "risk-card-very-high",
         "High Risk": "risk-card-high",
@@ -882,15 +885,15 @@ def create_risk_level_card(risk_level, count, percentage, action, icon, card_typ
     class_name = risk_card_classes.get(risk_level, "risk-card")
     
     return f"""
-    <div class="risk-card {class_name}">
-        <div style="margin-bottom: 0.5rem;">
-            <span style="font-size: 1.2rem;">{icon}</span>
-            <h4 style="margin: 0.5rem 0; font-size: 1rem; font-weight: 600;">{risk_level}</h4>
+    <div class="risk-card {class_name}" style="color: #000000 !important;">
+        <div style="margin-bottom: 0.5rem; color: #000000 !important;">
+            <span style="font-size: 1.2rem; color: #000000 !important;">{icon}</span>
+            <h4 style="margin: 0.5rem 0; font-size: 1rem; font-weight: 600; color: #000000 !important; text-shadow: none !important;">{risk_level}</h4>
         </div>
-        <h2 style="margin: 0.5rem 0; font-size: 2rem; font-weight: bold;">{count}</h2>
-        <p style="margin: 0.25rem 0;"><strong>{percentage:.1f}%</strong></p>
-        <p style="margin: 0.25rem 0; font-size: 0.85rem;">
-            Requires <strong>{action}</strong>
+        <h2 style="margin: 0.5rem 0; font-size: 2rem; font-weight: bold; color: #000000 !important; text-shadow: none !important;">{count}</h2>
+        <p style="margin: 0.25rem 0; color: #000000 !important; text-shadow: none !important;"><strong style="color: #000000 !important;">{percentage:.1f}%</strong></p>
+        <p style="margin: 0.25rem 0; font-size: 0.85rem; color: #000000 !important; text-shadow: none !important;">
+            Requires <strong style="color: #000000 !important;">{action}</strong>
         </p>
     </div>
     """
@@ -2150,28 +2153,7 @@ def show_enhanced_forecasting():
             "warning", "⚠️"
         ), unsafe_allow_html=True)
     
-    # Uncertainty vs prediction scatter with baseline reference
-    fig_uncertainty = px.scatter(
-        scenario_data,
-        x='Predicted_Komposit', 
-        y='Uncertainty_Range',
-        hover_data=['Provinsi'],
-        title=f"Prediction vs Uncertainty - {selected_scenario}",
-        size='Uncertainty_Range',
-        color='Predicted_Komposit',
-        color_continuous_scale="RdYlGn"
-    )
     
-    # Add baseline reference line
-    fig_uncertainty.add_vline(
-        x=baseline_score,
-        line_dash="dash",
-        line_color="gray",
-        annotation_text=f"{current_year} Baseline: {baseline_score:.2f}"
-    )
-    
-    fig_uncertainty.update_layout(height=400)
-    st.plotly_chart(fig_uncertainty, use_container_width=True)
 
 def show_enhanced_risk_assessment():
     """Enhanced risk assessment with actionable insights"""
@@ -2515,11 +2497,18 @@ def show_enhanced_reports():
                 title="Model Performance Across CV Folds",
                 markers=True
             )
+
+            # Ubah warna garis jadi putih
+            fig_performance_summary.update_traces(line=dict(color="white"), marker=dict(color="white"))
+
+            # Tambahkan garis rata-rata
             fig_performance_summary.add_hline(
                 y=cv_enhanced['r2'].mean(),
                 line_dash="dash",
-                annotation_text=f"Mean R²: {cv_enhanced['r2'].mean():.3f}"
+                annotation_text=f"Mean R²: {cv_enhanced['r2'].mean():.3f}",
+                line_color="gray"  # supaya kontras
             )
+
             st.plotly_chart(fig_performance_summary, use_container_width=True)
     
     with analytics_tabs[1]:
