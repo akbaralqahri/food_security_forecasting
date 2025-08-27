@@ -2051,7 +2051,7 @@ def show_enhanced_forecasting():
                     </span>
                 </p>
                 <hr style="margin: 0.75rem 0; border: 0; border-top: 1px solid rgba(0,0,0,0.1);">
-                <p style="margin: 0.25rem 0;"><strong>Provinces:</strong> {len(scenario_data)}</p>
+                <p style="margin: 0.25rem 0;"><strong>City:</strong> {len(scenario_data)}</p>
                 <p style="margin: 0.25rem 0;"><strong>High Risk:</strong> {high_risk} ({risk_pct:.1f}%)</p>
                 <p style="margin: 0.25rem 0;"><strong>Range:</strong> {scenario_data['Predicted_Komposit'].min():.2f} - {scenario_data['Predicted_Komposit'].max():.2f}</p>
                 <p style="margin: 0.25rem 0;"><strong>Uncertainty:</strong> ±{scenario_data['Uncertainty_Range'].mean():.2f}</p>
