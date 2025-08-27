@@ -555,6 +555,200 @@ def create_risk_distribution_map(scenario_data, risk_data):
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise GeoVisualizationError(f"Failed to create animated map: {str(e)}")
     
+def create_choropleth_filled_map(scenario_data, risk_data, selected_scenario='Status Quo'):
+    """
+    Create a filled choropleth map for Indonesian provinces
+    """
+    try:
+        # Validate data
+        is_valid, errors = validate_geo_data(scenario_data, risk_data)
+        if not is_valid:
+            raise GeoVisualizationError(f"Data validation failed: {'; '.join(errors)}")
+        
+        # Filter and aggregate data by province
+        scenario_filtered = scenario_data[scenario_data['Scenario'] == selected_scenario].copy()
+        risk_filtered = risk_data[risk_data['Scenario'] == selected_scenario].copy()
+        
+        # Aggregate to province level (mean of all kabupaten in province)
+        scenario_agg = scenario_filtered.groupby(['Provinsi', 'Scenario']).agg({
+            'Predicted_Komposit': 'mean',
+            'Lower_CI_95': 'mean' if 'Lower_CI_95' in scenario_filtered.columns else lambda x: 0,
+            'Upper_CI_95': 'mean' if 'Upper_CI_95' in scenario_filtered.columns else lambda x: 0,
+            'Uncertainty_Range': 'mean' if 'Uncertainty_Range' in scenario_filtered.columns else lambda x: 0.1
+        }).reset_index()
+        
+        risk_agg = risk_filtered.groupby(['Provinsi', 'Scenario']).agg({
+            'Risk_Level': lambda x: x.mode().iloc[0] if not x.empty else 'Medium Risk'  # Most common risk level
+        }).reset_index()
+        
+        # Merge aggregated data
+        map_data = pd.merge(scenario_agg, risk_agg, on=['Provinsi', 'Scenario'], how='left')
+        
+        if map_data.empty:
+            raise GeoVisualizationError("No data available after aggregation")
+        
+        # Standardize province names for matching with GeoJSON
+        province_name_mapping = {
+            'DKI Jakarta': 'JAKARTA',
+            'Jawa Barat': 'JAWA BARAT', 
+            'Jawa Tengah': 'JAWA TENGAH',
+            'Jawa Timur': 'JAWA TIMUR',
+            'Sumatera Utara': 'SUMATERA UTARA',
+            'Sumatera Barat': 'SUMATERA BARAT',
+            'Sumatera Selatan': 'SUMATERA SELATAN',
+            'Sulawesi Selatan': 'SULAWESI SELATAN',
+            'Sulawesi Utara': 'SULAWESI UTARA', 
+            'Sulawesi Tengah': 'SULAWESI TENGAH',
+            'Sulawesi Tenggara': 'SULAWESI TENGGARA',
+            'Sulawesi Barat': 'SULAWESI BARAT',
+            'Kalimantan Timur': 'KALIMANTAN TIMUR',
+            'Kalimantan Barat': 'KALIMANTAN BARAT',
+            'Kalimantan Selatan': 'KALIMANTAN SELATAN',
+            'Kalimantan Tengah': 'KALIMANTAN TENGAH',
+            'Kalimantan Utara': 'KALIMANTAN UTARA',
+            'Bali': 'BALI',
+            'NTB': 'NUSA TENGGARA BARAT',
+            'Nusa Tenggara Barat': 'NUSA TENGGARA BARAT',
+            'NTT': 'NUSA TENGGARA TIMUR', 
+            'Nusa Tenggara Timur': 'NUSA TENGGARA TIMUR',
+            'Maluku': 'MALUKU',
+            'Maluku Utara': 'MALUKU UTARA',
+            'Papua': 'PAPUA',
+            'Papua Barat': 'PAPUA BARAT',
+            'Gorontalo': 'GORONTALO',
+            'Riau': 'RIAU',
+            'Kepulauan Riau': 'KEPULAUAN RIAU',
+            'Jambi': 'JAMBI',
+            'Bengkulu': 'BENGKULU',
+            'Lampung': 'LAMPUNG',
+            'Bangka Belitung': 'KEPULAUAN BANGKA BELITUNG',
+            'Aceh': 'ACEH',
+            'Banten': 'BANTEN',
+            'DI Yogyakarta': 'DI YOGYAKARTA'
+        }
+        
+        # Map province names
+        map_data['Province_Standard'] = map_data['Provinsi'].map(province_name_mapping)
+        map_data['Province_Standard'] = map_data['Province_Standard'].fillna(map_data['Provinsi'].str.upper())
+        
+        # Try to load Indonesia GeoJSON (you'll need to provide this)
+        geojson_url = "https://raw.githubusercontent.com/superpikar/indonesia-geojson/master/indonesia-province-simple.geojson"
+        
+        try:
+            response = requests.get(geojson_url, timeout=10)
+            indonesia_geojson = response.json()
+        except:
+            # Fallback: create a simple choropleth without boundaries
+            return create_fallback_choropleth(map_data, selected_scenario)
+        
+        # Create choropleth map
+        fig = px.choropleth(
+            map_data,
+            geojson=indonesia_geojson,
+            locations='Province_Standard',
+            featureidkey="properties.NAME_1",  # Adjust based on GeoJSON structure
+            color='Predicted_Komposit',
+            hover_name='Provinsi',
+            hover_data={
+                'Risk_Level': True,
+                'Predicted_Komposit': ':.2f',
+                'Uncertainty_Range': ':.3f',
+                'Province_Standard': False
+            },
+            color_continuous_scale='RdYlGn',
+            range_color=[1, 6],
+            title=f'Food Security Risk Map (Filled) - {selected_scenario}',
+            height=700
+        )
+        
+        # Update layout for Indonesia focus
+        fig.update_geos(
+            center=dict(lat=-2.5, lon=118.0),
+            projection_scale=4,
+            showcoastlines=True,
+            showland=True,
+            landcolor="lightgray",
+            showocean=True,
+            oceancolor="lightblue"
+        )
+        
+        fig.update_layout(
+            title_font_size=16,
+            coloraxis_colorbar=dict(
+                title=dict(
+                    text="Food Security Score",
+                    side="right"
+                ),
+                tickmode='array',
+                tickvals=[1, 2, 3, 4, 5, 6],
+                ticktext=[
+                    '1 (Very Poor)', 
+                    '2 (Poor)', 
+                    '3 (Fair)', 
+                    '4 (Good)', 
+                    '5 (Very Good)', 
+                    '6 (Excellent)'
+                ],
+                len=0.8,
+                thickness=20
+            ),
+            margin=dict(r=0, t=80, l=0, b=0)
+        )
+        
+        return fig
+        
+    except Exception as e:
+        logger.error(f"Error creating filled choropleth map: {str(e)}")
+        raise GeoVisualizationError(f"Failed to create filled map: {str(e)}")
+
+def create_fallback_choropleth(map_data, selected_scenario):
+    """
+    Create a fallback visualization when GeoJSON is not available
+    """
+    # Create a horizontal bar chart as fallback
+    sorted_data = map_data.sort_values('Predicted_Komposit', ascending=True)
+    
+    fig = px.bar(
+        sorted_data,
+        x='Predicted_Komposit',
+        y='Provinsi',
+        orientation='h',
+        color='Predicted_Komposit',
+        color_continuous_scale='RdYlGn',
+        range_color=[1, 6],
+        title=f'Food Security by Province - {selected_scenario}<br><sub>(Fallback view - Geographic boundaries not available)</sub>',
+        hover_data=['Risk_Level', 'Uncertainty_Range'],
+        height=600
+    )
+    
+    fig.update_layout(
+        yaxis={'categoryorder':'total ascending'},
+        coloraxis_colorbar=dict(
+            title="Food Security Score",
+            tickmode='array',
+            tickvals=[1, 2, 3, 4, 5, 6],
+            ticktext=['1 (Very Poor)', '2 (Poor)', '3 (Fair)', '4 (Good)', '5 (Very Good)', '6 (Excellent)']
+        )
+    )
+    
+    return fig
+
+def update_choropleth_map_function():
+    """
+    Function to replace the existing scatter map with filled choropleth
+    Add this to your main.py in the geographic analysis section
+    """
+    # In your main.py, replace the scatter map creation with:
+    
+    # if map_type == "Filled Province Map":  # Add this as new option
+    #     fig_map = create_choropleth_filled_map(
+    #         forecaster.scenario_predictions, 
+    #         forecaster.risk_assessment, 
+    #         selected_scenario
+    #     )
+    #     st.plotly_chart(fig_map, use_container_width=True)
+    pass
+
 def clean_merge_columns(df1, df2, merge_on):
     """
     Clean merge to avoid duplicate column issues
