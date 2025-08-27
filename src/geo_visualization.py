@@ -967,8 +967,8 @@ def export_geographic_data(scenario_data, risk_data, selected_scenario, export_f
 
 def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
     """
-    Create a risk heatmap visualization with Region -> Province -> Kabupaten hierarchy
-    FIXED: Handle column naming conflicts and missing columns
+    Create a risk heatmap with ALL kabupaten preserved
+    ENHANCED: Ensures complete district coverage for each province
     """
     try:
         # Validate inputs
@@ -988,23 +988,26 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
             logger.error("Filtered data is empty")
             return None
         
-        # DEBUG: Check available columns before merge
-        logger.info(f"Scenario columns: {scenario_filtered.columns.tolist()}")
-        logger.info(f"Risk columns: {risk_filtered.columns.tolist()}")
+        # DEBUG: Show kabupaten count before merge
+        kabupaten_by_province_original = scenario_filtered.groupby('Provinsi')['Kabupaten'].nunique()
+        logger.info("Kabupaten count per province (original):")
+        for prov, count in kabupaten_by_province_original.items():
+            logger.info(f"  {prov}: {count} kabupaten")
         
-        # FIXED: More careful merge to avoid column conflicts
-        # First try with all three keys, fallback to fewer if needed
+        # ENHANCED: More careful merge that preserves all kabupaten
         try:
+            # Try merge with all keys first
             merged_data = pd.merge(
                 scenario_filtered, 
                 risk_filtered, 
                 on=['Provinsi', 'Scenario', 'Kabupaten'], 
-                how='left',
-                suffixes=('', '_risk')  # Avoid _x, _y suffixes
+                how='left',  # Keep all scenario data
+                suffixes=('', '_risk')
             )
+            logger.info("Successfully merged with Kabupaten key")
         except KeyError:
-            # If Kabupaten doesn't exist or doesn't match, merge without it
-            logger.warning("Merge with Kabupaten failed, trying without Kabupaten")
+            # Fallback: merge without Kabupaten, then fill missing
+            logger.warning("Merge with Kabupaten failed, using province-level merge")
             merged_data = pd.merge(
                 scenario_filtered, 
                 risk_filtered, 
@@ -1013,20 +1016,11 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
                 suffixes=('', '_risk')
             )
         
-        # DEBUG: Check columns after merge
-        logger.info(f"Merged columns: {merged_data.columns.tolist()}")
-        
-        if merged_data.empty:
-            logger.error("Merged data is empty")
-            return None
-        
-        # FIXED: Handle column name variations
+        # Find correct column names after merge
         predicted_col = None
         risk_level_col = None
         uncertainty_col = None
-        kabupaten_col = None
         
-        # Find the correct column names
         for col in merged_data.columns:
             if 'Predicted_Komposit' in col and predicted_col is None:
                 predicted_col = col
@@ -1034,107 +1028,117 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
                 risk_level_col = col
             elif 'Uncertainty_Range' in col and uncertainty_col is None:
                 uncertainty_col = col
-            elif col == 'Kabupaten' and kabupaten_col is None:
-                kabupaten_col = col
         
-        # Validate required columns exist
-        if predicted_col is None:
-            logger.error("Predicted_Komposit column not found. Available columns: " + str(merged_data.columns.tolist()))
+        if predicted_col is None or risk_level_col is None:
+            logger.error(f"Required columns missing. Available: {merged_data.columns.tolist()}")
             return None
-        if risk_level_col is None:
-            logger.error("Risk_Level column not found. Available columns: " + str(merged_data.columns.tolist()))
-            return None
-        if kabupaten_col is None:
-            logger.warning("Kabupaten column not found, using Provinsi only")
-            kabupaten_col = 'Provinsi'  # Fallback to province level
+        
+        # ENHANCED: Fill missing risk data instead of dropping rows
+        if merged_data[risk_level_col].isna().any():
+            # For kabupaten without risk data, use province average or default
+            missing_risk_count = merged_data[risk_level_col].isna().sum()
+            logger.warning(f"Found {missing_risk_count} kabupaten with missing risk data - will fill with defaults")
             
-        logger.info(f"Using columns - Predicted: {predicted_col}, Risk: {risk_level_col}, Kabupaten: {kabupaten_col}")
+            # Fill missing risk levels based on predicted score
+            def assign_risk_from_score(row):
+                if pd.notna(row[risk_level_col]):
+                    return row[risk_level_col]
+                
+                score = row[predicted_col]
+                if pd.isna(score):
+                    return 'Medium Risk'  # Default
+                elif score <= 2.0:
+                    return 'Very High Risk'
+                elif score <= 2.5:
+                    return 'High Risk'
+                elif score <= 3.5:
+                    return 'Medium Risk'
+                else:
+                    return 'Low Risk'
+            
+            merged_data[risk_level_col] = merged_data.apply(assign_risk_from_score, axis=1)
         
-        # Create risk level mapping for sizing
+        # ENHANCED: Fill missing predicted scores with province averages
+        if merged_data[predicted_col].isna().any():
+            province_averages = merged_data.groupby('Provinsi')[predicted_col].mean()
+            
+            def fill_missing_score(row):
+                if pd.notna(row[predicted_col]):
+                    return row[predicted_col]
+                return province_averages.get(row['Provinsi'], 3.0)  # Default to 3.0
+            
+            merged_data[predicted_col] = merged_data.apply(fill_missing_score, axis=1)
+        
+        # Create risk numeric mapping
         risk_mapping = {
             'Very High Risk': 4,
             'High Risk': 3,
             'Medium Risk': 2,
             'Low Risk': 1
         }
-        
         merged_data['Risk_Numeric'] = merged_data[risk_level_col].map(risk_mapping)
         
-        # Regional mapping function
+        # Regional mapping
         def get_sulampua_region(provinsi):
-            """Map provinces to their specific Sulampua regions"""
             if pd.isna(provinsi):
                 return 'Other Regions'
                 
             provinsi_lower = str(provinsi).lower()
             
-            # Sulawesi provinces
-            sulawesi_keywords = ['sulawesi', 'gorontalo']
-            if any(keyword in provinsi_lower for keyword in sulawesi_keywords):
+            if any(keyword in provinsi_lower for keyword in ['sulawesi', 'gorontalo']):
                 return 'Sulawesi'
-            
-            # Maluku provinces
-            maluku_keywords = ['maluku']
-            if any(keyword in provinsi_lower for keyword in maluku_keywords):
+            elif any(keyword in provinsi_lower for keyword in ['maluku']):
                 return 'Maluku'
-            
-            # Papua provinces
-            papua_keywords = ['papua']
-            if any(keyword in provinsi_lower for keyword in papua_keywords):
+            elif any(keyword in provinsi_lower for keyword in ['papua']):
                 return 'Papua'
             
             return 'Other Regions'
         
-        # Apply regional mapping
         merged_data['Region'] = merged_data['Provinsi'].apply(get_sulampua_region)
         
-        # Include Sulampua regions
+        # Filter to target regions
         target_regions = ['Sulawesi', 'Maluku', 'Papua']
         merged_data_sulampua = merged_data[merged_data['Region'].isin(target_regions)].copy()
         
-        # FIXED: Clean data with actual column names
-        columns_to_check = ['Region', predicted_col, risk_level_col]
-        if uncertainty_col:
-            columns_to_check.append(uncertainty_col)
-            
-        merged_data_sulampua = merged_data_sulampua.dropna(subset=columns_to_check)
+        # ENHANCED: Only drop rows with critical missing data (Region and Provinsi)
+        # Keep kabupaten even if they have some missing values
+        essential_columns = ['Region', 'Provinsi', 'Kabupaten']
+        merged_data_sulampua = merged_data_sulampua.dropna(subset=essential_columns)
         
         if merged_data_sulampua.empty:
             logger.error("No Sulampua data found after filtering")
             return None
         
-        # DEBUG: Final data check
-        final_region_counts = merged_data_sulampua['Region'].value_counts()
-        logger.info(f"Final data by region: {final_region_counts.to_dict()}")
+        # DEBUG: Show final kabupaten count
+        kabupaten_by_province_final = merged_data_sulampua.groupby('Provinsi')['Kabupaten'].nunique()
+        logger.info("Kabupaten count per province (final):")
+        total_kabupaten = 0
+        for prov, count in kabupaten_by_province_final.items():
+            logger.info(f"  {prov}: {count} kabupaten")
+            total_kabupaten += count
+        logger.info(f"Total kabupaten in visualization: {total_kabupaten}")
         
-        # Show provinces per region
-        for region in target_regions:
-            region_data = merged_data_sulampua[merged_data_sulampua['Region'] == region]
-            if not region_data.empty:
-                provinces_in_region = region_data['Provinsi'].unique().tolist()
-                districts_count = len(region_data)
-                avg_score = region_data[predicted_col].mean()
-                logger.info(f"{region}: {len(provinces_in_region)} provinces, {districts_count} districts, avg score: {avg_score:.2f}")
+        # Show which kabupaten were lost (if any)
+        for prov in kabupaten_by_province_original.index:
+            if prov in kabupaten_by_province_final.index:
+                original = kabupaten_by_province_original[prov]
+                final = kabupaten_by_province_final[prov]
+                if original != final:
+                    logger.warning(f"Lost {original - final} kabupaten in {prov}: {original} -> {final}")
         
-        # Create treemap path based on available columns
-        if kabupaten_col == 'Provinsi':
-            # If no Kabupaten, use 2-level hierarchy
-            path_hierarchy = ['Region', 'Provinsi']
-            title_subtitle = "Click regions to expand provinces"
-        else:
-            # If Kabupaten available, use 3-level hierarchy
-            path_hierarchy = ['Region', 'Provinsi', kabupaten_col]
-            title_subtitle = "Click provinces to see districts"
+        # Ensure all values are properly filled
+        merged_data_sulampua[predicted_col] = merged_data_sulampua[predicted_col].fillna(3.0)
+        merged_data_sulampua['Risk_Numeric'] = merged_data_sulampua['Risk_Numeric'].fillna(2)
         
-        # FIXED: Create treemap with dynamic path
+        # Create treemap
         fig = px.treemap(
             merged_data_sulampua,
-            path=path_hierarchy,
+            path=['Region', 'Provinsi', 'Kabupaten'],
             values='Risk_Numeric',
             color=predicted_col,
             color_continuous_scale='RdYlGn',
             range_color=[1, 6],
-            title=f'Food Security Risk Heatmap - {selected_scenario}<br><sub>{title_subtitle} | Regions: {", ".join(sorted(merged_data_sulampua["Region"].unique()))}</sub>',
+            title=f'Food Security Risk Heatmap - {selected_scenario}<br><sub>Complete district coverage | Click provinces to see all kabupaten | Total: {total_kabupaten} districts</sub>',
             hover_data={
                 risk_level_col: True, 
                 predicted_col: ':.2f',
@@ -1155,9 +1159,9 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
                          (f'Uncertainty: ±%{{customdata[2]:.3f}}<br>' if uncertainty_col else '') +
                          '<extra></extra>',
             marker=dict(
-                line=dict(width=2, color='white')
+                line=dict(width=1, color='white')
             ),
-            textfont_size=11
+            textfont_size=10
         )
         
         # Update layout
@@ -1178,17 +1182,18 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
             )
         )
         
-        # Add coverage annotation
+        # Add detailed coverage annotation
         province_counts = merged_data_sulampua.groupby('Region')['Provinsi'].nunique()
+        district_counts = merged_data_sulampua.groupby('Region')['Kabupaten'].nunique()
         coverage_text = " | ".join([
-            f"{region}: {province_counts[region]} provinces" 
+            f"{region}: {province_counts[region]} prov, {district_counts[region]} dist" 
             for region in target_regions if region in province_counts.index
         ])
         
         fig.add_annotation(
             x=0.5, y=0.02,
             xref="paper", yref="paper",
-            text=f"Coverage: {coverage_text}",
+            text=f"📊 Coverage: {coverage_text}",
             showarrow=False,
             font=dict(size=10, color="darkblue"),
             bgcolor="rgba(255,255,255,0.9)",
@@ -1204,6 +1209,87 @@ def create_risk_heatmap(scenario_data, risk_data, selected_scenario):
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return None
+
+# ALSO: Enhance the sample data generation to create more complete district coverage
+def load_sample_data():
+    """Create enhanced sample data with complete district coverage"""
+    np.random.seed(42)
+    
+    # Enhanced province list with realistic district counts
+    provinces_with_districts = {
+        'DKI Jakarta': 6,
+        'Jawa Barat': 27,
+        'Jawa Tengah': 35,
+        'Jawa Timur': 38,
+        'Sumatera Utara': 25,
+        'Sumatera Barat': 19,
+        'Sulawesi Selatan': 24,
+        'Sulawesi Tengah': 13,
+        'Sulawesi Utara': 15,
+        'Sulawesi Tenggara': 17,
+        'Sulawesi Barat': 6,
+        'Gorontalo': 6,
+        'Kalimantan Timur': 10,
+        'Bali': 9,
+        'Maluku': 11,
+        'Maluku Utara': 10,
+        'Papua': 29,
+        'Papua Barat': 13
+    }
+    
+    data = []
+    current_year = 2024
+    start_year = current_year - 5  # 6 years of data
+    
+    for year in range(start_year, current_year + 1):
+        for province, district_count in provinces_with_districts.items():
+            # Province-specific characteristics
+            base_poverty = np.random.uniform(5, 30)
+            base_education = np.random.uniform(6, 12)
+            base_health_ratio = np.random.uniform(0.5, 3.0)
+            base_life_expectancy = np.random.uniform(65, 78)
+            
+            # Create ALL districts for each province
+            for i in range(district_count):
+                year_effect = (year - start_year) * 0.1
+                
+                poverty = max(0, base_poverty + np.random.normal(-year_effect, 4))
+                education = base_education + np.random.normal(year_effect * 0.3, 1.5)
+                health_ratio = max(0.1, base_health_ratio + np.random.normal(year_effect * 0.05, 0.4))
+                life_expectancy = base_life_expectancy + np.random.normal(year_effect * 0.15, 2)
+                
+                # Composite score
+                composite_base = 6 - (poverty / 10) + (education / 3) + (health_ratio / 2)
+                composite = max(1, min(6, round(composite_base + np.random.normal(0, 0.8))))
+                
+                # Generate realistic district names
+                district_types = ['Kab', 'Kota']
+                district_type = np.random.choice(district_types, p=[0.8, 0.2])  # More kabupaten than kota
+                district_name = f"{district_type} {province.split()[0]} {i+1:02d}"
+                
+                data.append({
+                    'Tahun': year,
+                    'Provinsi': province,
+                    'Kabupaten': district_name,
+                    'Kemiskinan (%)': round(poverty, 2),
+                    'Pengeluaran Pangan (%)': round(np.random.uniform(35, 65), 2),
+                    'Tanpa Air Bersih (%)': round(max(0, np.random.uniform(5, 45) - year_effect), 2),
+                    'Lama Sekolah Perempuan (tahun)': round(education, 2),
+                    'Rasio Tenaga Kesehatan': round(health_ratio, 3),
+                    'Angka Harapan Hidup (tahun)': round(life_expectancy, 1),
+                    'Komposit': composite
+                })
+    
+    df = pd.DataFrame(data)
+    logger.info(f"Generated complete sample data: {len(df)} records across {df['Provinsi'].nunique()} provinces and {df['Kabupaten'].nunique()} districts")
+    
+    # Show district count per province
+    district_counts = df.groupby('Provinsi')['Kabupaten'].nunique()
+    logger.info("Districts per province in sample data:")
+    for prov, count in district_counts.items():
+        logger.info(f"  {prov}: {count} districts")
+    
+    return df
 
 # ALSO ADD: Enhanced province coordinate mapping to include more Maluku provinces
 def enhance_maluku_coordinates():
