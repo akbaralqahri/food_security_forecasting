@@ -207,7 +207,7 @@ def show_geographic_analysis():
     # Scenario selector
     scenarios = forecaster.scenario_predictions['Scenario'].unique()
     selected_scenario = st.selectbox(
-        "🌍 Select Scenario for Geographic Analysis:",
+        "🌏 Select Scenario for Geographic Analysis:",
         scenarios,
         help="Choose a scenario to visualize on maps"
     )
@@ -224,36 +224,17 @@ def show_geographic_analysis():
     with geo_tabs[0]:
         st.markdown("### 🌍 Interactive Risk Maps")
         
-        # MODIFIKASI: Tambahkan opsi Filled Province Map
+        # Map type selector
         map_type = st.radio(
             "Select Map Type:",
-            ["Filled Province Map", "Scatter Map", "Risk Heatmap"],  # 👈 TAMBAHKAN INI
+            ["Scatter Map", "Risk Heatmap"],
             horizontal=True,
             help="Choose visualization type"
         )
         
         try:
-            # TAMBAHKAN: Kondisi untuk Filled Province Map
-            if map_type == "Filled Province Map":
-                # Create filled choropleth map
-                fig_map = create_choropleth_filled_map(
-                    forecaster.scenario_predictions, 
-                    forecaster.risk_assessment, 
-                    selected_scenario
-                )
-                st.plotly_chart(fig_map, use_container_width=True)
-                
-                # Map guide untuk filled map
-                st.markdown("""
-                **🎨 Filled Map Guide:**
-                - **Province Colors**: Darker green = better food security, Red = poor security
-                - **Hover**: Mouse over provinces for detailed information
-                - **Scale**: 1 (Very Poor) to 6 (Excellent) food security score
-                - **Coverage**: Shows aggregate scores for entire provinces
-                """)
-                
-            elif map_type == "Scatter Map":
-                # Create interactive scatter map (existing code)
+            if map_type == "Scatter Map":
+                # Create interactive scatter map
                 fig_map = create_choropleth_map_plotly(
                     forecaster.scenario_predictions, 
                     forecaster.risk_assessment, 
@@ -261,9 +242,9 @@ def show_geographic_analysis():
                 )
                 st.plotly_chart(fig_map, use_container_width=True)
                 
-                # Original map guide
+                # Map guide
                 st.markdown("""
-                **🔍 Scatter Map Guide:**
+                **📍 Map Guide:**
                 - 🟢 **Green dots**: Better food security (scores 4-6)
                 - 🟡 **Yellow dots**: Moderate food security (scores 2.5-4)
                 - 🔴 **Red dots**: Poor food security (scores 1-2.5)
@@ -272,7 +253,7 @@ def show_geographic_analysis():
                 """)
                 
             elif map_type == "Risk Heatmap":
-                # Create risk heatmap (existing code)
+                # Create risk heatmap
                 fig_heatmap = create_risk_heatmap(
                     forecaster.scenario_predictions,
                     forecaster.risk_assessment,
