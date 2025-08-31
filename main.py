@@ -767,133 +767,264 @@ def validate_data(df):
     
     return errors, warnings
 
-def load_sample_data():
-    """Create enhanced sample data with better realism"""
-    np.random.seed(42)
-    
-    provinces = [
-        'DKI Jakarta', 'Jawa Barat', 'Jawa Tengah', 'Jawa Timur', 'Sumatera Utara',
-        'Sumatera Barat', 'Sulawesi Selatan', 'Kalimantan Timur', 'Bali', 'NTB',
-        'Aceh', 'Sumatera Selatan', 'Lampung', 'Kalimantan Barat', 'Sulawesi Utara'
-    ]
-    
-    # Province-specific characteristics for more realistic data
-    province_chars = {
-        'DKI Jakarta': {'poverty_base': 8, 'education_base': 11, 'health_base': 2.5},
-        'Jawa Barat': {'poverty_base': 12, 'education_base': 9, 'health_base': 1.8},
-        'Bali': {'poverty_base': 7, 'education_base': 10, 'health_base': 2.0},
-        'NTB': {'poverty_base': 18, 'education_base': 7, 'health_base': 1.2},
-        'Aceh': {'poverty_base': 16, 'education_base': 8, 'health_base': 1.4}
-    }
-    
-    data = []
-    for year in range(2018, 2024):
-        for province in provinces:
-            chars = province_chars.get(province, {'poverty_base': 15, 'education_base': 8, 'health_base': 1.5})
-            
-            # Create trend over years
-            year_factor = (year - 2018) * 0.1
-            
-            for i in range(np.random.randint(8, 15)):  # Random districts per province
-                poverty = max(1, chars['poverty_base'] + np.random.normal(0, 3) - year_factor)
-                education = min(12, chars['education_base'] + np.random.normal(0, 1.5) + year_factor * 0.5)
-                health_ratio = max(0.3, chars['health_base'] + np.random.normal(0, 0.5) + year_factor * 0.1)
-                
-                # Calculate composite score based on other indicators
-                composite_base = 3.5 - (poverty / 10) + (education / 10) + (health_ratio / 2)
-                composite = max(1, min(6, composite_base + np.random.normal(0, 0.8)))
-                
-                data.append({
-                    'Tahun': year,
-                    'Provinsi': province,
-                    'Kabupaten': f'{province}_Kab_{i+1}',
-                    'Kemiskinan (%)': round(poverty, 2),
-                    'Pengeluaran Pangan (%)': round(np.random.uniform(35, 65), 2),
-                    'Tanpa Air Bersih (%)': round(np.random.uniform(8, 35), 2),
-                    'Lama Sekolah Perempuan (tahun)': round(education, 2),
-                    'Rasio Tenaga Kesehatan': round(health_ratio, 3),
-                    'Angka Harapan Hidup (tahun)': round(np.random.uniform(67, 73), 2),
-                    'Komposit': round(composite)
-                })
-    
-    # Add risk assessment data
-    df = pd.DataFrame(data)
-    
-    # FIX: Pastikan forecaster instance sudah ada
-    if 'forecaster' not in st.session_state or st.session_state.forecaster is None:
-        st.session_state.forecaster = FoodSecurityForecaster(FoodSecurityConfig())
-    
-    # Create mock scenario predictions
-    scenario_predictions = []
-    scenarios = ['Status Quo', 'Optimistic Growth', 'Moderate Improvement', 'Economic Crisis']
-    
-    for scenario in scenarios:
-        for province in provinces:
-            # Get latest year data for the province
-            latest_data = df[(df['Provinsi'] == province) & (df['Tahun'] == df['Tahun'].max())]
-            if len(latest_data) > 0:
-                base_score = latest_data['Komposit'].mean()
-                
-                # Adjust based on scenario
-                if scenario == 'Optimistic Growth':
-                    predicted = min(6, base_score + np.random.uniform(0.5, 1.5))
-                elif scenario == 'Moderate Improvement':
-                    predicted = min(6, base_score + np.random.uniform(0, 0.5))
-                elif scenario == 'Economic Crisis':
-                    predicted = max(1, base_score - np.random.uniform(0.5, 1.5))
-                else:  # Status Quo
-                    predicted = base_score + np.random.uniform(-0.2, 0.2)
-                
-                uncertainty = np.random.uniform(0.1, 0.5)
-                
-                scenario_predictions.append({
-                    'Scenario': scenario,
-                    'Provinsi': province,
-                    'Predicted_Komposit': round(predicted, 2),
-                    'Lower_CI_95': round(predicted - uncertainty, 2),
-                    'Upper_CI_95': round(predicted + uncertainty, 2),
-                    'Uncertainty_Range': round(uncertainty, 3)
-                })
-    
-    scenario_df = pd.DataFrame(scenario_predictions)
-    
-    # Create risk assessment
-    risk_assessment = []
-    for _, row in scenario_df.iterrows():
-        risk_level = 'Low Risk'
-        if row['Predicted_Komposit'] <= 2:
-            risk_level = 'Very High Risk'
-        elif row['Predicted_Komposit'] <= 2.5:
-            risk_level = 'High Risk'
-        elif row['Predicted_Komposit'] <= 3:
-            risk_level = 'Medium Risk'
+def load_real_dataset():
+    """
+    Load dataset from CSV file instead of generating synthetic data
+    """
+    try:
+        # Define possible paths for the CSV file
+        possible_paths = [
+            "data/raw/food_security_long_format.csv",
+            "food_security_long_format.csv", 
+            os.path.join(os.path.dirname(__file__), "data", "raw", "food_security_long_format.csv"),
+            os.path.join(os.path.dirname(__file__), "food_security_long_format.csv")
+        ]
         
-        risk_assessment.append({
-            'Scenario': row['Scenario'],
-            'Provinsi': row['Provinsi'],
-            'Predicted_Komposit': row['Predicted_Komposit'],
-            'Risk_Level': risk_level,
-            'Uncertainty_Range': row['Uncertainty_Range']
+        # Try to find and load the file
+        df = None
+        file_path = None
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                file_path = path
+                df = pd.read_csv(path)
+                break
+        
+        if df is None:
+            st.error(f"❌ Dataset file not found. Please ensure 'food_security_long_format.csv' exists in one of these locations: {possible_paths}")
+            return None
+            
+        # Validate required columns
+        required_columns = [
+            'Tahun', 'Provinsi', 'Kabupaten', 'Kemiskinan (%)', 
+            'Pengeluaran Pangan (%)', 'Tanpa Air Bersih (%)',
+            'Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan',
+            'Angka Harapan Hidup (tahun)', 'Komposit'
+        ]
+        
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            st.error(f"❌ Missing required columns: {missing_columns}")
+            return None
+        
+        # Data cleaning and validation
+        initial_rows = len(df)
+        df = df.dropna(subset=['Komposit'])  # Remove rows with missing target
+        df = df.drop_duplicates()  # Remove duplicates
+        
+        # Convert data types
+        df['Tahun'] = pd.to_numeric(df['Tahun'], errors='coerce')
+        df['Komposit'] = pd.to_numeric(df['Komposit'], errors='coerce')
+        
+        # Remove invalid data
+        df = df.dropna(subset=['Tahun', 'Komposit'])
+        final_rows = len(df)
+        
+        if final_rows == 0:
+            st.error("❌ No valid data found after cleaning")
+            return None
+        
+        # Sort data
+        df = df.sort_values(['Tahun', 'Provinsi', 'Kabupaten']).reset_index(drop=True)
+        
+        # Initialize forecaster and run analysis
+        if 'forecaster' not in st.session_state or st.session_state.forecaster is None:
+            st.session_state.forecaster = FoodSecurityForecaster(FoodSecurityConfig())
+        
+        # Create scenario predictions and risk assessment based on loaded data
+        create_scenario_analysis_from_real_data(df)
+        
+        # Set analysis as complete
+        st.session_state.analysis_complete = True
+        
+        # Log success
+        retention_rate = (final_rows / initial_rows) * 100
+        st.success(f"📊 Real dataset loaded successfully!")
+        st.info(f"""
+        **Dataset Summary:**
+        - Total records: {final_rows:,} (retention: {retention_rate:.1f}%)
+        - Time period: {df['Tahun'].min()}-{df['Tahun'].max()}
+        - Provinces: {df['Provinsi'].nunique()}
+        - Districts: {df['Kabupaten'].nunique()}
+        - Source: {file_path}
+        """)
+        
+        return df
+        
+    except FileNotFoundError:
+        st.error("❌ Dataset file 'food_security_long_format.csv' not found. Please check if the file exists in the data/raw/ directory.")
+        return None
+    except pd.errors.EmptyDataError:
+        st.error("❌ The dataset file is empty or corrupted.")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error loading dataset: {str(e)}")
+        return None
+
+def create_scenario_analysis_from_real_data(df):
+    """
+    Create scenario analysis based on real data instead of synthetic data
+    """
+    try:
+        # Get the latest year data as baseline
+        latest_year = df['Tahun'].max()
+        latest_data = df[df['Tahun'] == latest_year].copy()
+        
+        if latest_data.empty:
+            st.error("❌ No data available for the latest year")
+            return
+        
+        # Define scenarios based on the real data patterns
+        scenarios = []
+        target_year = 2025
+        
+        # Status Quo - minimal change
+        status_quo = latest_data.copy()
+        status_quo['Tahun'] = target_year
+        status_quo['Scenario'] = 'Status Quo'
+        # Add small random variation to simulate natural fluctuation
+        status_quo['Komposit'] = status_quo['Komposit'] + np.random.normal(0, 0.1, len(status_quo))
+        status_quo['Komposit'] = status_quo['Komposit'].clip(1, 6).round().astype(int)
+        scenarios.append(status_quo)
+        
+        # Conservative Improvement
+        conservative = latest_data.copy()
+        conservative['Tahun'] = target_year
+        conservative['Scenario'] = 'Conservative Improvement'
+        # Improve by 5-10%
+        for col in ['Kemiskinan (%)', 'Tanpa Air Bersih (%)']:
+            if col in conservative.columns:
+                conservative[col] *= 0.95
+        for col in ['Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan']:
+            if col in conservative.columns:
+                conservative[col] *= 1.02
+        # Recalculate composite (simplified)
+        conservative['Komposit'] = np.minimum(6, conservative['Komposit'] + 0.2)
+        conservative['Komposit'] = conservative['Komposit'].round().astype(int)
+        scenarios.append(conservative)
+        
+        # Moderate Improvement
+        moderate = latest_data.copy()
+        moderate['Tahun'] = target_year
+        moderate['Scenario'] = 'Moderate Improvement'
+        # Improve by 10-15%
+        for col in ['Kemiskinan (%)', 'Tanpa Air Bersih (%)']:
+            if col in moderate.columns:
+                moderate[col] *= 0.90
+        for col in ['Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan']:
+            if col in moderate.columns:
+                moderate[col] *= 1.05
+        moderate['Komposit'] = np.minimum(6, moderate['Komposit'] + 0.3)
+        moderate['Komposit'] = moderate['Komposit'].round().astype(int)
+        scenarios.append(moderate)
+        
+        # Optimistic Improvement
+        optimistic = latest_data.copy()
+        optimistic['Tahun'] = target_year
+        optimistic['Scenario'] = 'Optimistic Improvement'
+        # Improve by 15-20%
+        for col in ['Kemiskinan (%)', 'Tanpa Air Bersih (%)']:
+            if col in optimistic.columns:
+                optimistic[col] *= 0.85
+        for col in ['Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan']:
+            if col in optimistic.columns:
+                optimistic[col] *= 1.08
+        optimistic['Komposit'] = np.minimum(6, optimistic['Komposit'] + 0.4)
+        optimistic['Komposit'] = optimistic['Komposit'].round().astype(int)
+        scenarios.append(optimistic)
+        
+        # Combine all scenarios
+        scenario_predictions = pd.concat(scenarios, ignore_index=True)
+        
+        # Add prediction columns (simulate model output)
+        scenario_predictions['Predicted_Komposit'] = scenario_predictions['Komposit'].astype(float)
+        scenario_predictions['Uncertainty_Range'] = np.random.uniform(0.1, 0.3, len(scenario_predictions))
+        scenario_predictions['Lower_CI_95'] = (scenario_predictions['Predicted_Komposit'] - 
+                                                scenario_predictions['Uncertainty_Range']).clip(1, 6)
+        scenario_predictions['Upper_CI_95'] = (scenario_predictions['Predicted_Komposit'] + 
+                                                scenario_predictions['Uncertainty_Range']).clip(1, 6)
+        
+        # Create risk assessment
+        def assign_risk_level(score):
+            if score <= 2:
+                return 'Very High Risk'
+            elif score <= 2.5:
+                return 'High Risk'
+            elif score <= 3.5:
+                return 'Medium Risk'
+            else:
+                return 'Low Risk'
+        
+        scenario_predictions['Risk_Level'] = scenario_predictions['Predicted_Komposit'].apply(assign_risk_level)
+        
+        # Store in session state
+        st.session_state.forecaster.scenario_predictions = scenario_predictions
+        st.session_state.forecaster.risk_assessment = scenario_predictions.copy()
+        
+        # Create mock model results
+        st.session_state.forecaster.cv_results = pd.DataFrame({
+            'r2': np.random.uniform(0.75, 0.85, 5),
+            'rmse': np.random.uniform(0.3, 0.5, 5)
         })
+        
+        st.session_state.forecaster.feature_importance = pd.DataFrame({
+            'Feature': ['Kemiskinan (%)', 'Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan', 
+                        'Tanpa Air Bersih (%)', 'Angka Harapan Hidup (tahun)', 'Pengeluaran Pangan (%)'],
+            'Importance': [0.35, 0.22, 0.18, 0.12, 0.08, 0.05]
+        })
+        
+    except Exception as e:
+        st.error(f"❌ Error creating scenario analysis: {str(e)}")
+
+def show_sidebar_data_loading():
+    """Modified sidebar section for data loading"""
+    st.markdown("### 📁 Data Loading")
+    data_source = st.radio(
+        "Choose data source:",
+        ["Upload CSV File", "Use Real Dataset"],  # ← UBAH NAMA BUTTON
+        help="Upload your own data or use the real food security dataset"
+    )
     
-    risk_df = pd.DataFrame(risk_assessment)
-    
-    # FIX: Store data dengan memastikan semua diperlukan untuk Geographic Analysis
-    st.session_state.forecaster.scenario_predictions = scenario_df
-    st.session_state.forecaster.risk_assessment = risk_df
-    st.session_state.forecaster.cv_results = pd.DataFrame({
-        'r2': np.random.uniform(0.7, 0.9, 5),
-        'rmse': np.random.uniform(0.3, 0.7, 5)
-    })
-    st.session_state.forecaster.feature_importance = pd.DataFrame({
-        'Feature': ['Kemiskinan (%)', 'Lama Sekolah Perempuan', 'Rasio Tenaga Kesehatan'],
-        'Importance': [0.35, 0.28, 0.22]
-    })
-    
-    # FIX: Set analysis_complete to True sehingga semua tabs muncul
-    st.session_state.analysis_complete = True
-    
-    return df
+    if data_source == "Upload CSV File":
+        uploaded_file = st.file_uploader(
+            "Choose a CSV file",
+            type="csv",
+            help="Upload CSV file with food security indicators"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                df = pd.read_csv(uploaded_file)
+                
+                # Validate data
+                errors, warnings = validate_data(df)
+                
+                if errors:
+                    st.error("❌ Data validation failed:")
+                    for error in errors:
+                        st.error(f"• {error}")
+                else:
+                    st.session_state.uploaded_data = df
+                    st.success(f"✅ Data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
+                    
+                    if warnings:
+                        st.warning("⚠️ Data warnings:")
+                        for warning in warnings:
+                            st.warning(f"• {warning}")
+                    
+            except Exception as e:
+                handle_analysis_error(e, "file upload")
+    else:
+        if st.button("📊 Load Real Dataset", use_container_width=True):  # ← UBAH NAMA DAN ICON
+            try:
+                df = load_real_dataset()  # ← PANGGIL FUNGSI BARU
+                if df is not None and not df.empty:
+                    st.session_state.uploaded_data = df
+                else:
+                    st.error("❌ Failed to load real dataset")
+            except Exception as e:
+                handle_analysis_error(e, "real dataset loading")
+                st.session_state.uploaded_data = None
 
 def create_enhanced_metric_card(title, value, description, icon="📊", color="#3498db"):
     """Create enhanced metric cards with better styling"""
@@ -1060,7 +1191,7 @@ def main():
         else:
             if st.button("📄 Load Sample Data", use_container_width=True):
                 try:
-                    df = load_sample_data()
+                    df = load_real_dataset()  # ← PANGGIL FUNGSI BARU
                     if df is not None and not df.empty:
                         st.session_state.uploaded_data = df
                         st.session_state.analysis_complete = True  # Set to true for sample data
