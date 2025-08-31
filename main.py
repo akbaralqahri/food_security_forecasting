@@ -769,7 +769,7 @@ def validate_data(df):
     return errors, warnings
 
 def load_sample_data():
-    """Load sample data from CSV file instead of generating synthetic data"""
+    """Load sample data from CSV file without running analysis"""
     try:
         # Path ke CSV file relatif dari main.py
         csv_path = "data/raw/food_security_long_format.csv"
@@ -787,100 +787,30 @@ def load_sample_data():
             st.error("❌ File CSV kosong")
             return None
         
+        # Validasi kolom yang diperlukan
+        required_columns = ['Tahun', 'Provinsi', 'Kabupaten', 'Komposit']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            st.warning(f"⚠️ Kolom yang hilang: {missing_columns}")
+            st.info("Dataset akan tetap dimuat, tapi beberapa fitur mungkin terbatas")
+        
         # Log info tentang data yang dimuat
         st.success(f"✅ Dataset berhasil dimuat dari {csv_path}")
-        st.info(f"📊 Data: {df.shape[0]} baris, {df.shape[1]} kolom, {df['Tahun'].min()}-{df['Tahun'].max()}")
+        st.info(f"📊 Data: {df.shape[0]} baris, {df.shape[1]} kolom")
+        st.info(f"📈 Rentang tahun: {df['Tahun'].min()} - {df['Tahun'].max()}")
+        st.info(f"🏛️ Jumlah provinsi: {df['Provinsi'].nunique()}")
         
-        # Setup forecaster dan hasil analysis untuk sample data
-        if 'forecaster' not in st.session_state or st.session_state.forecaster is None:
-            st.session_state.forecaster = FoodSecurityForecaster(FoodSecurityConfig())
+        # Tampilkan preview data
+        with st.expander("📋 Preview Data", expanded=False):
+            st.dataframe(df.head(10))
         
-        # Jalankan mock analysis untuk sample data dari CSV
-        forecaster = st.session_state.forecaster
+        # HANYA LOAD DATA - JANGAN SET ANALYSIS COMPLETE
+        # Inisialisasi forecaster tapi jangan jalankan analysis
+        if 'forecaster' not in st.session_state:
+            st.session_state.forecaster = None
         
-        # Mock analysis results - sesuaikan dengan data real
-        np.random.seed(42)
-        
-        # CV results
-        forecaster.cv_results = pd.DataFrame({
-            'r2': np.random.uniform(0.7, 0.9, 5),
-            'rmse': np.random.uniform(0.3, 0.7, 5)
-        })
-        
-        # Feature importance - sesuaikan dengan kolom yang ada
-        available_features = []
-        config = FoodSecurityConfig()
-        for feature in config.PREDICTOR_VARIABLES:
-            if feature in df.columns:
-                available_features.append(feature)
-        
-        if available_features:
-            importance_values = np.random.dirichlet(np.ones(len(available_features)))
-            forecaster.feature_importance = pd.DataFrame({
-                'Feature': available_features,
-                'Importance': importance_values
-            }).sort_values('Importance', ascending=False)
-        
-        # Scenario predictions berdasarkan data real
-        provinces = df['Provinsi'].unique()
-        scenarios = ['Status Quo', 'Optimistic Growth', 'Moderate Improvement', 'Economic Crisis']
-        
-        scenario_predictions = []
-        for scenario in scenarios:
-            for province in provinces[:15]:  # Batasi untuk performa
-                # Ambil rata-rata komposit terakhir untuk baseline
-                latest_data = df[df['Provinsi'] == province]
-                if not latest_data.empty:
-                    base_score = latest_data['Komposit'].mean()
-                    
-                    # Adjust berdasarkan skenario
-                    if scenario == 'Optimistic Growth':
-                        predicted = min(6, base_score + np.random.uniform(0.5, 1.5))
-                    elif scenario == 'Moderate Improvement':
-                        predicted = min(6, base_score + np.random.uniform(0, 0.5))
-                    elif scenario == 'Economic Crisis':
-                        predicted = max(1, base_score - np.random.uniform(0.5, 1.5))
-                    else:  # Status Quo
-                        predicted = base_score + np.random.uniform(-0.2, 0.2)
-                    
-                    uncertainty = np.random.uniform(0.1, 0.5)
-                    
-                    scenario_predictions.append({
-                        'Scenario': scenario,
-                        'Provinsi': province,
-                        'Kabupaten': f'{province}_District_1',
-                        'Predicted_Komposit': round(predicted, 2),
-                        'Lower_CI_95': round(predicted - uncertainty, 2),
-                        'Upper_CI_95': round(predicted + uncertainty, 2),
-                        'Uncertainty_Range': round(uncertainty, 3)
-                    })
-        
-        forecaster.scenario_predictions = pd.DataFrame(scenario_predictions)
-        
-        # Risk assessment
-        risk_assessment = []
-        for _, row in forecaster.scenario_predictions.iterrows():
-            risk_level = 'Low Risk'
-            if row['Predicted_Komposit'] <= 2:
-                risk_level = 'Very High Risk'
-            elif row['Predicted_Komposit'] <= 2.5:
-                risk_level = 'High Risk'
-            elif row['Predicted_Komposit'] <= 3:
-                risk_level = 'Medium Risk'
-            
-            risk_assessment.append({
-                'Scenario': row['Scenario'],
-                'Provinsi': row['Provinsi'],
-                'Kabupaten': row['Kabupaten'],
-                'Predicted_Komposit': row['Predicted_Komposit'],
-                'Risk_Level': risk_level,
-                'Uncertainty_Range': row['Uncertainty_Range']
-            })
-        
-        forecaster.risk_assessment = pd.DataFrame(risk_assessment)
-        
-        # Set analysis complete
-        st.session_state.analysis_complete = True
+        # Reset analysis state
+        st.session_state.analysis_complete = False
         
         return df
         
