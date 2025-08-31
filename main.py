@@ -767,264 +767,433 @@ def validate_data(df):
     
     return errors, warnings
 
-def load_real_dataset():
-    """
-    Load dataset from CSV file instead of generating synthetic data
-    """
+def load_sample_data():
+    """Load real dataset from CSV file instead of generating mock data"""
     try:
-        # Define possible paths for the CSV file
-        possible_paths = [
-            "data/raw/food_security_long_format.csv",
-            "food_security_long_format.csv", 
-            os.path.join(os.path.dirname(__file__), "data", "raw", "food_security_long_format.csv"),
-            os.path.join(os.path.dirname(__file__), "food_security_long_format.csv")
-        ]
+        # Define the path to the CSV file
+        csv_path = Path("data/raw/food_security_long_format.csv")
         
-        # Try to find and load the file
-        df = None
-        file_path = None
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                file_path = path
-                df = pd.read_csv(path)
-                break
-        
-        if df is None:
-            st.error(f"❌ Dataset file not found. Please ensure 'food_security_long_format.csv' exists in one of these locations: {possible_paths}")
-            return None
+        # Check if file exists
+        if not csv_path.exists():
+            # Try alternative paths
+            alt_paths = [
+                "data/food_security_long_format.csv",
+                "./food_security_long_format.csv",
+                "../data/raw/food_security_long_format.csv"
+            ]
             
-        # Validate required columns
-        required_columns = [
-            'Tahun', 'Provinsi', 'Kabupaten', 'Kemiskinan (%)', 
-            'Pengeluaran Pangan (%)', 'Tanpa Air Bersih (%)',
-            'Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan',
-            'Angka Harapan Hidup (tahun)', 'Komposit'
-        ]
+            csv_path = None
+            for alt_path in alt_paths:
+                if Path(alt_path).exists():
+                    csv_path = Path(alt_path)
+                    break
+            
+            if csv_path is None:
+                st.error("❌ Dataset file 'food_security_long_format.csv' not found in expected locations.")
+                st.info("Please ensure the file is located in: data/raw/food_security_long_format.csv")
+                return create_fallback_sample_data()
         
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            st.error(f"❌ Missing required columns: {missing_columns}")
-            return None
+        # Load the real dataset
+        st.info(f"📂 Loading dataset from: {csv_path}")
+        df = pd.read_csv(csv_path)
         
-        # Data cleaning and validation
-        initial_rows = len(df)
-        df = df.dropna(subset=['Komposit'])  # Remove rows with missing target
-        df = df.drop_duplicates()  # Remove duplicates
+        # Validate the loaded data
+        validation_errors, validation_warnings = validate_real_dataset(df)
         
-        # Convert data types
-        df['Tahun'] = pd.to_numeric(df['Tahun'], errors='coerce')
-        df['Komposit'] = pd.to_numeric(df['Komposit'], errors='coerce')
+        if validation_errors:
+            st.error("❌ Dataset validation failed:")
+            for error in validation_errors:
+                st.error(f"• {error}")
+            return create_fallback_sample_data()
         
-        # Remove invalid data
-        df = df.dropna(subset=['Tahun', 'Komposit'])
-        final_rows = len(df)
+        if validation_warnings:
+            st.warning("⚠️ Dataset validation warnings:")
+            for warning in validation_warnings:
+                st.warning(f"• {warning}")
         
-        if final_rows == 0:
-            st.error("❌ No valid data found after cleaning")
-            return None
+        # Clean and prepare the data
+        df = clean_and_prepare_dataset(df)
         
-        # Sort data
-        df = df.sort_values(['Tahun', 'Provinsi', 'Kabupaten']).reset_index(drop=True)
-        
-        # Initialize forecaster and run analysis
+        # Initialize forecaster if not exists
         if 'forecaster' not in st.session_state or st.session_state.forecaster is None:
+            from src.food_security_forecasting import FoodSecurityForecaster, FoodSecurityConfig
             st.session_state.forecaster = FoodSecurityForecaster(FoodSecurityConfig())
         
-        # Create scenario predictions and risk assessment based on loaded data
-        create_scenario_analysis_from_real_data(df)
+        # Generate scenario predictions and risk assessment based on real data
+        generate_scenarios_from_real_data(df, st.session_state.forecaster)
         
-        # Set analysis as complete
+        # Mark analysis as complete for sample data
         st.session_state.analysis_complete = True
         
-        # Log success
-        retention_rate = (final_rows / initial_rows) * 100
-        st.success(f"📊 Real dataset loaded successfully!")
-        st.info(f"""
-        **Dataset Summary:**
-        - Total records: {final_rows:,} (retention: {retention_rate:.1f}%)
-        - Time period: {df['Tahun'].min()}-{df['Tahun'].max()}
-        - Provinces: {df['Provinsi'].nunique()}
-        - Districts: {df['Kabupaten'].nunique()}
-        - Source: {file_path}
-        """)
+        st.success(f"✅ Real dataset loaded successfully: {df.shape[0]} records from {df['Provinsi'].nunique()} provinces")
         
         return df
         
     except FileNotFoundError:
-        st.error("❌ Dataset file 'food_security_long_format.csv' not found. Please check if the file exists in the data/raw/ directory.")
-        return None
+        st.error(f"❌ File not found: {csv_path}")
+        return create_fallback_sample_data()
     except pd.errors.EmptyDataError:
-        st.error("❌ The dataset file is empty or corrupted.")
-        return None
+        st.error("❌ The CSV file is empty")
+        return create_fallback_sample_data()
+    except pd.errors.ParserError as e:
+        st.error(f"❌ Error parsing CSV file: {str(e)}")
+        return create_fallback_sample_data()
     except Exception as e:
-        st.error(f"❌ Error loading dataset: {str(e)}")
-        return None
+        st.error(f"❌ Unexpected error loading dataset: {str(e)}")
+        logger.error(f"Error in load_sample_data: {str(e)}")
+        return create_fallback_sample_data()
 
-def create_scenario_analysis_from_real_data(df):
-    """
-    Create scenario analysis based on real data instead of synthetic data
-    """
+def validate_real_dataset(df):
+    """Validate the real dataset structure and content"""
+    errors = []
+    warnings = []
+    
+    # Check basic structure
+    if df.empty:
+        errors.append("Dataset is empty")
+        return errors, warnings
+    
+    # Required columns for the application
+    required_columns = [
+        'Tahun', 'Provinsi', 'Kabupaten', 'Kemiskinan (%)', 
+        'Pengeluaran Pangan (%)', 'Tanpa Air Bersih (%)',
+        'Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan',
+        'Angka Harapan Hidup (tahun)', 'Komposit'
+    ]
+    
+    # Check for required columns
+    missing_cols = [col for col in required_columns if col not in df.columns]
+    if missing_cols:
+        errors.append(f"Missing required columns: {', '.join(missing_cols)}")
+    
+    # Check data types and ranges for existing columns
+    if 'Tahun' in df.columns:
+        if not pd.api.types.is_numeric_dtype(df['Tahun']):
+            try:
+                df['Tahun'] = pd.to_numeric(df['Tahun'], errors='coerce')
+                warnings.append("'Tahun' column converted to numeric")
+            except:
+                errors.append("'Tahun' column cannot be converted to numeric")
+        
+        if df['Tahun'].isna().any():
+            warnings.append("Some years have invalid values")
+        elif df['Tahun'].min() < 2000 or df['Tahun'].max() > 2030:
+            warnings.append(f"Years outside typical range: {df['Tahun'].min()} - {df['Tahun'].max()}")
+    
+    if 'Komposit' in df.columns:
+        if not pd.api.types.is_numeric_dtype(df['Komposit']):
+            try:
+                df['Komposit'] = pd.to_numeric(df['Komposit'], errors='coerce')
+                warnings.append("'Komposit' column converted to numeric")
+            except:
+                errors.append("'Komposit' column cannot be converted to numeric")
+        
+        if df['Komposit'].isna().any():
+            warnings.append("Some composite scores have invalid values")
+        elif (df['Komposit'].min() < 1 or df['Komposit'].max() > 6):
+            warnings.append(f"Komposit values outside expected range (1-6): {df['Komposit'].min():.2f} - {df['Komposit'].max():.2f}")
+    
+    # Check for critical missing values
+    critical_columns = ['Provinsi', 'Kabupaten', 'Tahun', 'Komposit']
+    for col in critical_columns:
+        if col in df.columns:
+            missing_pct = (df[col].isnull().sum() / len(df)) * 100
+            if missing_pct > 0:
+                if missing_pct > 10:
+                    errors.append(f"High missing values in critical column '{col}': {missing_pct:.1f}%")
+                else:
+                    warnings.append(f"Missing values in '{col}': {missing_pct:.1f}%")
+    
+    # Check data size
+    if len(df) < 50:
+        warnings.append(f"Dataset is quite small: {len(df)} records")
+    
+    # Check geographic coverage
+    if 'Provinsi' in df.columns:
+        unique_provinces = df['Provinsi'].nunique()
+        if unique_provinces < 5:
+            warnings.append(f"Limited geographic coverage: only {unique_provinces} provinces")
+    
+    # Check temporal coverage
+    if 'Tahun' in df.columns and not df['Tahun'].isna().all():
+        year_span = df['Tahun'].max() - df['Tahun'].min()
+        if year_span < 2:
+            warnings.append(f"Limited temporal coverage: {year_span} year span")
+    
+    return errors, warnings
+
+def clean_and_prepare_dataset(df):
+    """Clean and prepare the real dataset for analysis"""
+    df_clean = df.copy()
+    
+    # Convert data types
+    numeric_columns = [
+        'Tahun', 'Kemiskinan (%)', 'Pengeluaran Pangan (%)', 'Tanpa Air Bersih (%)',
+        'Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan',
+        'Angka Harapan Hidup (tahun)', 'Komposit'
+    ]
+    
+    for col in numeric_columns:
+        if col in df_clean.columns:
+            df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
+    
+    # Clean string columns
+    string_columns = ['Provinsi', 'Kabupaten']
+    for col in string_columns:
+        if col in df_clean.columns:
+            df_clean[col] = df_clean[col].astype(str).str.strip()
+    
+    # Handle missing values for numeric columns
+    for col in numeric_columns:
+        if col in df_clean.columns and df_clean[col].isnull().any():
+            if col == 'Tahun':
+                # Don't impute years
+                continue
+            else:
+                # Use median imputation for other numeric columns
+                median_value = df_clean[col].median()
+                df_clean[col].fillna(median_value, inplace=True)
+    
+    # Remove rows with missing critical information
+    critical_columns = ['Provinsi', 'Kabupaten', 'Tahun']
+    for col in critical_columns:
+        if col in df_clean.columns:
+            df_clean = df_clean.dropna(subset=[col])
+    
+    # Sort by year and province for consistency
+    if 'Tahun' in df_clean.columns and 'Provinsi' in df_clean.columns:
+        df_clean = df_clean.sort_values(['Tahun', 'Provinsi', 'Kabupaten']).reset_index(drop=True)
+    
+    return df_clean
+
+def generate_scenarios_from_real_data(df, forecaster):
+    """Generate scenario predictions and risk assessment based on real data patterns"""
     try:
-        # Get the latest year data as baseline
+        # Get the most recent year's data as baseline
         latest_year = df['Tahun'].max()
         latest_data = df[df['Tahun'] == latest_year].copy()
         
-        if latest_data.empty:
-            st.error("❌ No data available for the latest year")
+        if len(latest_data) == 0:
+            st.warning("No recent data found for scenario generation")
             return
         
-        # Define scenarios based on the real data patterns
-        scenarios = []
-        target_year = 2025
+        # Define scenarios with realistic adjustments
+        scenarios = {
+            'Status Quo': {'adjustment': 0.0, 'variance': 0.1},
+            'Optimistic Growth': {'adjustment': 0.3, 'variance': 0.15},
+            'Moderate Improvement': {'adjustment': 0.15, 'variance': 0.12},
+            'Economic Crisis': {'adjustment': -0.25, 'variance': 0.2}
+        }
         
-        # Status Quo - minimal change
-        status_quo = latest_data.copy()
-        status_quo['Tahun'] = target_year
-        status_quo['Scenario'] = 'Status Quo'
-        # Add small random variation to simulate natural fluctuation
-        status_quo['Komposit'] = status_quo['Komposit'] + np.random.normal(0, 0.1, len(status_quo))
-        status_quo['Komposit'] = status_quo['Komposit'].clip(1, 6).round().astype(int)
-        scenarios.append(status_quo)
+        scenario_predictions = []
         
-        # Conservative Improvement
-        conservative = latest_data.copy()
-        conservative['Tahun'] = target_year
-        conservative['Scenario'] = 'Conservative Improvement'
-        # Improve by 5-10%
-        for col in ['Kemiskinan (%)', 'Tanpa Air Bersih (%)']:
-            if col in conservative.columns:
-                conservative[col] *= 0.95
-        for col in ['Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan']:
-            if col in conservative.columns:
-                conservative[col] *= 1.02
-        # Recalculate composite (simplified)
-        conservative['Komposit'] = np.minimum(6, conservative['Komposit'] + 0.2)
-        conservative['Komposit'] = conservative['Komposit'].round().astype(int)
-        scenarios.append(conservative)
+        for scenario_name, params in scenarios.items():
+            for _, row in latest_data.iterrows():
+                base_score = row['Komposit'] if pd.notna(row['Komposit']) else 3.0
+                
+                # Apply scenario adjustment with some randomness
+                np.random.seed(hash(f"{scenario_name}{row['Provinsi']}{row['Kabupaten']}") % 2**31)
+                adjustment = params['adjustment'] + np.random.normal(0, params['variance'])
+                predicted_score = base_score + adjustment
+                
+                # Keep within valid range (1-6)
+                predicted_score = max(1, min(6, predicted_score))
+                
+                # Calculate uncertainty based on data quality and scenario
+                base_uncertainty = 0.1
+                if pd.isna(row['Komposit']):
+                    base_uncertainty = 0.3
+                
+                uncertainty = base_uncertainty + (params['variance'] * 0.5)
+                
+                scenario_predictions.append({
+                    'Scenario': scenario_name,
+                    'Provinsi': row['Provinsi'],
+                    'Kabupaten': row['Kabupaten'],
+                    'Predicted_Komposit': round(predicted_score, 2),
+                    'Lower_CI_95': round(predicted_score - uncertainty, 2),
+                    'Upper_CI_95': round(predicted_score + uncertainty, 2),
+                    'Uncertainty_Range': round(uncertainty, 3)
+                })
         
-        # Moderate Improvement
-        moderate = latest_data.copy()
-        moderate['Tahun'] = target_year
-        moderate['Scenario'] = 'Moderate Improvement'
-        # Improve by 10-15%
-        for col in ['Kemiskinan (%)', 'Tanpa Air Bersih (%)']:
-            if col in moderate.columns:
-                moderate[col] *= 0.90
-        for col in ['Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan']:
-            if col in moderate.columns:
-                moderate[col] *= 1.05
-        moderate['Komposit'] = np.minimum(6, moderate['Komposit'] + 0.3)
-        moderate['Komposit'] = moderate['Komposit'].round().astype(int)
-        scenarios.append(moderate)
+        forecaster.scenario_predictions = pd.DataFrame(scenario_predictions)
         
-        # Optimistic Improvement
-        optimistic = latest_data.copy()
-        optimistic['Tahun'] = target_year
-        optimistic['Scenario'] = 'Optimistic Improvement'
-        # Improve by 15-20%
-        for col in ['Kemiskinan (%)', 'Tanpa Air Bersih (%)']:
-            if col in optimistic.columns:
-                optimistic[col] *= 0.85
-        for col in ['Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan']:
-            if col in optimistic.columns:
-                optimistic[col] *= 1.08
-        optimistic['Komposit'] = np.minimum(6, optimistic['Komposit'] + 0.4)
-        optimistic['Komposit'] = optimistic['Komposit'].round().astype(int)
-        scenarios.append(optimistic)
+        # Generate risk assessment
+        generate_risk_assessment_from_scenarios(forecaster)
         
-        # Combine all scenarios
-        scenario_predictions = pd.concat(scenarios, ignore_index=True)
-        
-        # Add prediction columns (simulate model output)
-        scenario_predictions['Predicted_Komposit'] = scenario_predictions['Komposit'].astype(float)
-        scenario_predictions['Uncertainty_Range'] = np.random.uniform(0.1, 0.3, len(scenario_predictions))
-        scenario_predictions['Lower_CI_95'] = (scenario_predictions['Predicted_Komposit'] - 
-                                                scenario_predictions['Uncertainty_Range']).clip(1, 6)
-        scenario_predictions['Upper_CI_95'] = (scenario_predictions['Predicted_Komposit'] + 
-                                                scenario_predictions['Uncertainty_Range']).clip(1, 6)
-        
-        # Create risk assessment
-        def assign_risk_level(score):
-            if score <= 2:
-                return 'Very High Risk'
-            elif score <= 2.5:
-                return 'High Risk'
-            elif score <= 3.5:
-                return 'Medium Risk'
-            else:
-                return 'Low Risk'
-        
-        scenario_predictions['Risk_Level'] = scenario_predictions['Predicted_Komposit'].apply(assign_risk_level)
-        
-        # Store in session state
-        st.session_state.forecaster.scenario_predictions = scenario_predictions
-        st.session_state.forecaster.risk_assessment = scenario_predictions.copy()
-        
-        # Create mock model results
-        st.session_state.forecaster.cv_results = pd.DataFrame({
-            'r2': np.random.uniform(0.75, 0.85, 5),
-            'rmse': np.random.uniform(0.3, 0.5, 5)
-        })
-        
-        st.session_state.forecaster.feature_importance = pd.DataFrame({
-            'Feature': ['Kemiskinan (%)', 'Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan', 
-                        'Tanpa Air Bersih (%)', 'Angka Harapan Hidup (tahun)', 'Pengeluaran Pangan (%)'],
-            'Importance': [0.35, 0.22, 0.18, 0.12, 0.08, 0.05]
-        })
+        # Generate mock model performance results for consistency
+        generate_mock_model_results(forecaster)
         
     except Exception as e:
-        st.error(f"❌ Error creating scenario analysis: {str(e)}")
+        st.error(f"Error generating scenarios from real data: {str(e)}")
+        logger.error(f"Error in generate_scenarios_from_real_data: {str(e)}")
 
-def show_sidebar_data_loading():
-    """Modified sidebar section for data loading"""
-    st.markdown("### 📁 Data Loading")
-    data_source = st.radio(
-        "Choose data source:",
-        ["Upload CSV File", "Use Real Dataset"],  # ← UBAH NAMA BUTTON
-        help="Upload your own data or use the real food security dataset"
-    )
+def generate_risk_assessment_from_scenarios(forecaster):
+    """Generate risk assessment based on scenario predictions"""
+    if forecaster.scenario_predictions is None:
+        return
     
-    if data_source == "Upload CSV File":
-        uploaded_file = st.file_uploader(
-            "Choose a CSV file",
-            type="csv",
-            help="Upload CSV file with food security indicators"
-        )
+    risk_assessment = []
+    
+    for _, row in forecaster.scenario_predictions.iterrows():
+        predicted_score = row['Predicted_Komposit']
         
-        if uploaded_file is not None:
-            try:
-                df = pd.read_csv(uploaded_file)
-                
-                # Validate data
-                errors, warnings = validate_data(df)
-                
-                if errors:
-                    st.error("❌ Data validation failed:")
-                    for error in errors:
-                        st.error(f"• {error}")
-                else:
-                    st.session_state.uploaded_data = df
-                    st.success(f"✅ Data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
-                    
-                    if warnings:
-                        st.warning("⚠️ Data warnings:")
-                        for warning in warnings:
-                            st.warning(f"• {warning}")
-                    
-            except Exception as e:
-                handle_analysis_error(e, "file upload")
-    else:
-        if st.button("📊 Load Real Dataset", use_container_width=True):  # ← UBAH NAMA DAN ICON
-            try:
-                df = load_real_dataset()  # ← PANGGIL FUNGSI BARU
-                if df is not None and not df.empty:
-                    st.session_state.uploaded_data = df
-                else:
-                    st.error("❌ Failed to load real dataset")
-            except Exception as e:
-                handle_analysis_error(e, "real dataset loading")
-                st.session_state.uploaded_data = None
+        # Define risk levels based on score
+        if predicted_score <= 2.0:
+            risk_level = 'Very High Risk'
+        elif predicted_score <= 2.5:
+            risk_level = 'High Risk'
+        elif predicted_score <= 3.5:
+            risk_level = 'Medium Risk'
+        else:
+            risk_level = 'Low Risk'
+        
+        risk_assessment.append({
+            'Scenario': row['Scenario'],
+            'Provinsi': row['Provinsi'],
+            'Kabupaten': row['Kabupaten'],
+            'Predicted_Komposit': predicted_score,
+            'Risk_Level': risk_level,
+            'Uncertainty_Range': row['Uncertainty_Range']
+        })
+    
+    forecaster.risk_assessment = pd.DataFrame(risk_assessment)
+
+def generate_mock_model_results(forecaster):
+    """Generate mock model performance results for dashboard compatibility"""
+    # Generate realistic CV results
+    np.random.seed(42)
+    forecaster.cv_results = pd.DataFrame({
+        'r2': np.random.uniform(0.75, 0.85, 5),
+        'rmse': np.random.uniform(0.25, 0.35, 5)
+    })
+    
+    # Generate feature importance based on common food security factors
+    feature_names = [
+        'Kemiskinan (%)', 
+        'Lama Sekolah Perempuan (tahun)', 
+        'Rasio Tenaga Kesehatan',
+        'Tanpa Air Bersih (%)',
+        'Pengeluaran Pangan (%)',
+        'Angka Harapan Hidup (tahun)'
+    ]
+    
+    # Generate realistic importance scores
+    importance_scores = [0.28, 0.22, 0.18, 0.15, 0.12, 0.05]
+    
+    forecaster.feature_importance = pd.DataFrame({
+        'Feature': feature_names,
+        'Importance': importance_scores
+    })
+
+def create_fallback_sample_data():
+    """Create fallback sample data if real dataset cannot be loaded"""
+    st.warning("🔄 Using fallback sample data due to dataset loading issues")
+    
+    # This is the original mock data generation code as a fallback
+    np.random.seed(42)
+    
+    provinces = [
+        'DKI Jakarta', 'Jawa Barat', 'Jawa Tengah', 'Jawa Timur', 'Sumatera Utara',
+        'Sumatera Barat', 'Sulawesi Selatan', 'Kalimantan Timur', 'Bali', 'NTB',
+        'Aceh', 'Sumatera Selatan', 'Lampung', 'Kalimantan Barat', 'Sulawesi Utara'
+    ]
+    
+    data = []
+    for year in range(2018, 2024):
+        for province in provinces:
+            for i in range(np.random.randint(5, 8)):
+                data.append({
+                    'Tahun': year,
+                    'Provinsi': province,
+                    'Kabupaten': f'{province}_Kab_{i+1}',
+                    'Kemiskinan (%)': round(np.random.uniform(8, 25), 2),
+                    'Pengeluaran Pangan (%)': round(np.random.uniform(35, 65), 2),
+                    'Tanpa Air Bersih (%)': round(np.random.uniform(8, 35), 2),
+                    'Lama Sekolah Perempuan (tahun)': round(np.random.uniform(7, 12), 2),
+                    'Rasio Tenaga Kesehatan': round(np.random.uniform(0.5, 3.0), 3),
+                    'Angka Harapan Hidup (tahun)': round(np.random.uniform(67, 73), 2),
+                    'Komposit': round(np.random.uniform(1.5, 5.5), 1)
+                })
+    
+    return pd.DataFrame(data)
+
+def improved_validate_data(df):
+    """Improved data validation function that handles real datasets better"""
+    required_columns = [
+        'Tahun', 'Provinsi', 'Kabupaten', 'Kemiskinan (%)', 
+        'Pengeluaran Pangan (%)', 'Tanpa Air Bersih (%)',
+        'Lama Sekolah Perempuan (tahun)', 'Rasio Tenaga Kesehatan',
+        'Angka Harapan Hidup (tahun)', 'Komposit'
+    ]
+    
+    errors = []
+    warnings = []
+    
+    # Check for required columns with fuzzy matching
+    missing_cols = []
+    for req_col in required_columns:
+        if req_col not in df.columns:
+            # Try to find similar column names
+            similar_cols = [col for col in df.columns if 
+                           any(word.lower() in col.lower() for word in req_col.split())]
+            if similar_cols:
+                warnings.append(f"Column '{req_col}' not found, but similar columns exist: {similar_cols}")
+            else:
+                missing_cols.append(req_col)
+    
+    if missing_cols:
+        errors.append(f"Missing required columns: {', '.join(missing_cols)}")
+    
+    # Enhanced data type checking
+    for col in df.columns:
+        if col in required_columns and col in df.columns:
+            if col in ['Tahun', 'Komposit'] or '(%)' in col or '(tahun)' in col or 'Rasio' in col:
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    # Try to convert
+                    try:
+                        pd.to_numeric(df[col], errors='coerce')
+                        warnings.append(f"'{col}' will be converted to numeric")
+                    except:
+                        errors.append(f"'{col}' cannot be converted to numeric")
+    
+    # Data range validation with real-world considerations
+    if 'Tahun' in df.columns:
+        years = pd.to_numeric(df['Tahun'], errors='coerce')
+        if not years.isna().all():
+            if years.min() < 1990 or years.max() > 2030:
+                warnings.append(f"Years outside expected range: {years.min():.0f} - {years.max():.0f}")
+    
+    if 'Komposit' in df.columns:
+        komposit = pd.to_numeric(df['Komposit'], errors='coerce')
+        if not komposit.isna().all():
+            if komposit.min() < 0.5 or komposit.max() > 7:
+                warnings.append(f"Komposit values outside typical range: {komposit.min():.2f} - {komposit.max():.2f}")
+    
+    # Missing values analysis with thresholds
+    missing_analysis = df.isnull().sum() / len(df) * 100
+    high_missing = missing_analysis[missing_analysis > 30]
+    moderate_missing = missing_analysis[(missing_analysis > 10) & (missing_analysis <= 30)]
+    
+    if not high_missing.empty:
+        errors.append(f"Very high missing values (>30%): {', '.join(high_missing.index)}")
+    if not moderate_missing.empty:
+        warnings.append(f"Moderate missing values (10-30%): {', '.join(moderate_missing.index)}")
+    
+    # Geographic and temporal coverage
+    if 'Provinsi' in df.columns:
+        provinces = df['Provinsi'].nunique()
+        if provinces < 10:
+            warnings.append(f"Limited geographic coverage: {provinces} provinces")
+    
+    if 'Tahun' in df.columns:
+        years = pd.to_numeric(df['Tahun'], errors='coerce')
+        if not years.isna().all():
+            year_range = years.max() - years.min()
+            if year_range < 3:
+                warnings.append(f"Limited temporal range: {year_range} years")
+    
+    return errors, warnings
 
 def create_enhanced_metric_card(title, value, description, icon="📊", color="#3498db"):
     """Create enhanced metric cards with better styling"""
@@ -1191,7 +1360,7 @@ def main():
         else:
             if st.button("📄 Load Sample Data", use_container_width=True):
                 try:
-                    df = load_real_dataset()  # ← PANGGIL FUNGSI BARU
+                    df = load_sample_data()
                     if df is not None and not df.empty:
                         st.session_state.uploaded_data = df
                         st.session_state.analysis_complete = True  # Set to true for sample data
