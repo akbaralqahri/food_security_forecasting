@@ -14,6 +14,7 @@ import traceback
 import logging
 from datetime import datetime
 import io
+import os
 warnings.filterwarnings('ignore')
 
 # Configure logging
@@ -768,132 +769,131 @@ def validate_data(df):
     return errors, warnings
 
 def load_sample_data():
-    """Create enhanced sample data with better realism"""
-    np.random.seed(42)
-    
-    provinces = [
-        'DKI Jakarta', 'Jawa Barat', 'Jawa Tengah', 'Jawa Timur', 'Sumatera Utara',
-        'Sumatera Barat', 'Sulawesi Selatan', 'Kalimantan Timur', 'Bali', 'NTB',
-        'Aceh', 'Sumatera Selatan', 'Lampung', 'Kalimantan Barat', 'Sulawesi Utara'
-    ]
-    
-    # Province-specific characteristics for more realistic data
-    province_chars = {
-        'DKI Jakarta': {'poverty_base': 8, 'education_base': 11, 'health_base': 2.5},
-        'Jawa Barat': {'poverty_base': 12, 'education_base': 9, 'health_base': 1.8},
-        'Bali': {'poverty_base': 7, 'education_base': 10, 'health_base': 2.0},
-        'NTB': {'poverty_base': 18, 'education_base': 7, 'health_base': 1.2},
-        'Aceh': {'poverty_base': 16, 'education_base': 8, 'health_base': 1.4}
-    }
-    
-    data = []
-    for year in range(2018, 2024):
-        for province in provinces:
-            chars = province_chars.get(province, {'poverty_base': 15, 'education_base': 8, 'health_base': 1.5})
-            
-            # Create trend over years
-            year_factor = (year - 2018) * 0.1
-            
-            for i in range(np.random.randint(8, 15)):  # Random districts per province
-                poverty = max(1, chars['poverty_base'] + np.random.normal(0, 3) - year_factor)
-                education = min(12, chars['education_base'] + np.random.normal(0, 1.5) + year_factor * 0.5)
-                health_ratio = max(0.3, chars['health_base'] + np.random.normal(0, 0.5) + year_factor * 0.1)
-                
-                # Calculate composite score based on other indicators
-                composite_base = 3.5 - (poverty / 10) + (education / 10) + (health_ratio / 2)
-                composite = max(1, min(6, composite_base + np.random.normal(0, 0.8)))
-                
-                data.append({
-                    'Tahun': year,
-                    'Provinsi': province,
-                    'Kabupaten': f'{province}_Kab_{i+1}',
-                    'Kemiskinan (%)': round(poverty, 2),
-                    'Pengeluaran Pangan (%)': round(np.random.uniform(35, 65), 2),
-                    'Tanpa Air Bersih (%)': round(np.random.uniform(8, 35), 2),
-                    'Lama Sekolah Perempuan (tahun)': round(education, 2),
-                    'Rasio Tenaga Kesehatan': round(health_ratio, 3),
-                    'Angka Harapan Hidup (tahun)': round(np.random.uniform(67, 73), 2),
-                    'Komposit': round(composite)
-                })
-    
-    # Add risk assessment data
-    df = pd.DataFrame(data)
-    
-    # FIX: Pastikan forecaster instance sudah ada
-    if 'forecaster' not in st.session_state or st.session_state.forecaster is None:
-        st.session_state.forecaster = FoodSecurityForecaster(FoodSecurityConfig())
-    
-    # Create mock scenario predictions
-    scenario_predictions = []
-    scenarios = ['Status Quo', 'Optimistic Growth', 'Moderate Improvement', 'Economic Crisis']
-    
-    for scenario in scenarios:
-        for province in provinces:
-            # Get latest year data for the province
-            latest_data = df[(df['Provinsi'] == province) & (df['Tahun'] == df['Tahun'].max())]
-            if len(latest_data) > 0:
-                base_score = latest_data['Komposit'].mean()
-                
-                # Adjust based on scenario
-                if scenario == 'Optimistic Growth':
-                    predicted = min(6, base_score + np.random.uniform(0.5, 1.5))
-                elif scenario == 'Moderate Improvement':
-                    predicted = min(6, base_score + np.random.uniform(0, 0.5))
-                elif scenario == 'Economic Crisis':
-                    predicted = max(1, base_score - np.random.uniform(0.5, 1.5))
-                else:  # Status Quo
-                    predicted = base_score + np.random.uniform(-0.2, 0.2)
-                
-                uncertainty = np.random.uniform(0.1, 0.5)
-                
-                scenario_predictions.append({
-                    'Scenario': scenario,
-                    'Provinsi': province,
-                    'Predicted_Komposit': round(predicted, 2),
-                    'Lower_CI_95': round(predicted - uncertainty, 2),
-                    'Upper_CI_95': round(predicted + uncertainty, 2),
-                    'Uncertainty_Range': round(uncertainty, 3)
-                })
-    
-    scenario_df = pd.DataFrame(scenario_predictions)
-    
-    # Create risk assessment
-    risk_assessment = []
-    for _, row in scenario_df.iterrows():
-        risk_level = 'Low Risk'
-        if row['Predicted_Komposit'] <= 2:
-            risk_level = 'Very High Risk'
-        elif row['Predicted_Komposit'] <= 2.5:
-            risk_level = 'High Risk'
-        elif row['Predicted_Komposit'] <= 3:
-            risk_level = 'Medium Risk'
+    """Load sample data from CSV file instead of generating synthetic data"""
+    try:
+        # Path ke CSV file relatif dari main.py
+        csv_path = "data/raw/food_security_long_format.csv"
         
-        risk_assessment.append({
-            'Scenario': row['Scenario'],
-            'Provinsi': row['Provinsi'],
-            'Predicted_Komposit': row['Predicted_Komposit'],
-            'Risk_Level': risk_level,
-            'Uncertainty_Range': row['Uncertainty_Range']
+        # Cek apakah file ada
+        if not os.path.exists(csv_path):
+            st.error(f"❌ File tidak ditemukan: {csv_path}")
+            return None
+        
+        # Load CSV file
+        df = pd.read_csv(csv_path)
+        
+        # Validasi data basic
+        if df.empty:
+            st.error("❌ File CSV kosong")
+            return None
+        
+        # Log info tentang data yang dimuat
+        st.success(f"✅ Dataset berhasil dimuat dari {csv_path}")
+        st.info(f"📊 Data: {df.shape[0]} baris, {df.shape[1]} kolom, {df['Tahun'].min()}-{df['Tahun'].max()}")
+        
+        # Setup forecaster dan hasil analysis untuk sample data
+        if 'forecaster' not in st.session_state or st.session_state.forecaster is None:
+            st.session_state.forecaster = FoodSecurityForecaster(FoodSecurityConfig())
+        
+        # Jalankan mock analysis untuk sample data dari CSV
+        forecaster = st.session_state.forecaster
+        
+        # Mock analysis results - sesuaikan dengan data real
+        np.random.seed(42)
+        
+        # CV results
+        forecaster.cv_results = pd.DataFrame({
+            'r2': np.random.uniform(0.7, 0.9, 5),
+            'rmse': np.random.uniform(0.3, 0.7, 5)
         })
-    
-    risk_df = pd.DataFrame(risk_assessment)
-    
-    # FIX: Store data dengan memastikan semua diperlukan untuk Geographic Analysis
-    st.session_state.forecaster.scenario_predictions = scenario_df
-    st.session_state.forecaster.risk_assessment = risk_df
-    st.session_state.forecaster.cv_results = pd.DataFrame({
-        'r2': np.random.uniform(0.7, 0.9, 5),
-        'rmse': np.random.uniform(0.3, 0.7, 5)
-    })
-    st.session_state.forecaster.feature_importance = pd.DataFrame({
-        'Feature': ['Kemiskinan (%)', 'Lama Sekolah Perempuan', 'Rasio Tenaga Kesehatan'],
-        'Importance': [0.35, 0.28, 0.22]
-    })
-    
-    # FIX: Set analysis_complete to True sehingga semua tabs muncul
-    st.session_state.analysis_complete = True
-    
-    return df
+        
+        # Feature importance - sesuaikan dengan kolom yang ada
+        available_features = []
+        config = FoodSecurityConfig()
+        for feature in config.PREDICTOR_VARIABLES:
+            if feature in df.columns:
+                available_features.append(feature)
+        
+        if available_features:
+            importance_values = np.random.dirichlet(np.ones(len(available_features)))
+            forecaster.feature_importance = pd.DataFrame({
+                'Feature': available_features,
+                'Importance': importance_values
+            }).sort_values('Importance', ascending=False)
+        
+        # Scenario predictions berdasarkan data real
+        provinces = df['Provinsi'].unique()
+        scenarios = ['Status Quo', 'Optimistic Growth', 'Moderate Improvement', 'Economic Crisis']
+        
+        scenario_predictions = []
+        for scenario in scenarios:
+            for province in provinces[:15]:  # Batasi untuk performa
+                # Ambil rata-rata komposit terakhir untuk baseline
+                latest_data = df[df['Provinsi'] == province]
+                if not latest_data.empty:
+                    base_score = latest_data['Komposit'].mean()
+                    
+                    # Adjust berdasarkan skenario
+                    if scenario == 'Optimistic Growth':
+                        predicted = min(6, base_score + np.random.uniform(0.5, 1.5))
+                    elif scenario == 'Moderate Improvement':
+                        predicted = min(6, base_score + np.random.uniform(0, 0.5))
+                    elif scenario == 'Economic Crisis':
+                        predicted = max(1, base_score - np.random.uniform(0.5, 1.5))
+                    else:  # Status Quo
+                        predicted = base_score + np.random.uniform(-0.2, 0.2)
+                    
+                    uncertainty = np.random.uniform(0.1, 0.5)
+                    
+                    scenario_predictions.append({
+                        'Scenario': scenario,
+                        'Provinsi': province,
+                        'Kabupaten': f'{province}_District_1',
+                        'Predicted_Komposit': round(predicted, 2),
+                        'Lower_CI_95': round(predicted - uncertainty, 2),
+                        'Upper_CI_95': round(predicted + uncertainty, 2),
+                        'Uncertainty_Range': round(uncertainty, 3)
+                    })
+        
+        forecaster.scenario_predictions = pd.DataFrame(scenario_predictions)
+        
+        # Risk assessment
+        risk_assessment = []
+        for _, row in forecaster.scenario_predictions.iterrows():
+            risk_level = 'Low Risk'
+            if row['Predicted_Komposit'] <= 2:
+                risk_level = 'Very High Risk'
+            elif row['Predicted_Komposit'] <= 2.5:
+                risk_level = 'High Risk'
+            elif row['Predicted_Komposit'] <= 3:
+                risk_level = 'Medium Risk'
+            
+            risk_assessment.append({
+                'Scenario': row['Scenario'],
+                'Provinsi': row['Provinsi'],
+                'Kabupaten': row['Kabupaten'],
+                'Predicted_Komposit': row['Predicted_Komposit'],
+                'Risk_Level': risk_level,
+                'Uncertainty_Range': row['Uncertainty_Range']
+            })
+        
+        forecaster.risk_assessment = pd.DataFrame(risk_assessment)
+        
+        # Set analysis complete
+        st.session_state.analysis_complete = True
+        
+        return df
+        
+    except FileNotFoundError:
+        st.error(f"❌ File tidak ditemukan: data/raw/food_security_long_format.csv")
+        st.error("Pastikan file CSV berada di lokasi yang benar")
+        return None
+    except pd.errors.EmptyDataError:
+        st.error("❌ File CSV kosong atau tidak valid")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error loading CSV: {str(e)}")
+        return None
 
 def create_enhanced_metric_card(title, value, description, icon="📊", color="#3498db"):
     """Create enhanced metric cards with better styling"""
