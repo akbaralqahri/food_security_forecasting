@@ -1428,24 +1428,30 @@ def show_dashboard_content():
     """Show main dashboard content with error handling"""
     df = st.session_state.uploaded_data
     
-    # Create tabs - FIX: Add Geographic Analysis tab
+    # Create tabs - HANYA SHOW SEMUA TAB KALAU ANALYSIS SUDAH COMPLETE
     if st.session_state.analysis_complete:
         tabs = st.tabs([
             "📊 Data Overview", 
             "🤖 Model Performance", 
             "🎯 Feature Analysis",
             "🔮 Forecasting", 
-            "🗺️ Geographic Analysis",  # ← FIX: Tab yang hilang
+            "🗺️ Geographic Analysis",
             "⚠️ Risk Assessment",
             "📋 Reports"
         ])
     else:
+        # HANYA DATA OVERVIEW KALAU BELUM ANALYSIS
         tabs = st.tabs(["📊 Data Overview"])
     
     # Data Overview Tab (always available)
     with tabs[0]:
         try:
             show_enhanced_data_overview(df)
+            
+            # Tampilkan instruksi untuk analysis
+            if not st.session_state.analysis_complete:
+                st.info("💡 **Next Step:** Use the Analysis Controls in the sidebar to run forecasting analysis and unlock all dashboard features.")
+                
         except Exception as e:
             handle_analysis_error(e, "data overview")
     
@@ -1458,7 +1464,7 @@ def show_dashboard_content():
                 show_enhanced_feature_analysis()
             with tabs[3]:
                 show_enhanced_forecasting()
-            with tabs[4]:  # ← FIX: Geographic Analysis tab
+            with tabs[4]:
                 show_geographic_analysis()
             with tabs[5]:
                 show_enhanced_risk_assessment()
