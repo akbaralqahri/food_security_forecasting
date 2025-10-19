@@ -1367,7 +1367,7 @@ def show_welcome_screen():
     """Enhanced welcome screen"""
     st.markdown('<div class="welcome-section">', unsafe_allow_html=True)
     
-    st.markdown("## 👋 Welcome to the Enhanced Food Security Dashboard")
+    st.markdown("## 👋 Welcome to the SIPEKAN")
     
     # Feature highlights with cards
     col1, col2, col3 = st.columns(3)

@@ -1,4 +1,5 @@
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"background":"transparent"}} }%%
 flowchart TD
     %% === START ===
     Start([🏠 Buka Dashboard]):::start --> Upload{📂 Pilih Data}
@@ -39,5 +40,12 @@ flowchart TD
     classDef start fill:#d9d9d9,stroke:#7f8c8d,stroke-width:2px,color:#000,font-weight:bold;
     classDef results fill:#bfbfbf,stroke:#7f8c8d,stroke-width:2px,color:#000,font-weight:bold;
 
+    %% Hilangkan background untuk semua node
+    classDef transparent fill:none,stroke:#000,stroke-width:1px,color:#000;
+    class * transparent;
+
+    %% Hilangkan background subgraph
+    style InputData fill:none,stroke:#000,color:#000
+    style Param fill:none,stroke:#000,color:#000
 
 ```
